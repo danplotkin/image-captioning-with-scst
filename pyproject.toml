@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "scst-captioner"
+version = "0.1.0"
+description = "A reproducible CPTR-inspired image captioner with self-critical sequence training"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "nltk>=3.9,<4",
+  "numpy>=1.26,<3",
+  "pillow>=10,<12",
+  "torch>=2.4,<3",
+  "torchvision>=0.19,<1",
+  "tqdm>=4.66,<5",
+  "transformers>=4.44,<5",
+]
+
+[project.optional-dependencies]
+eval = ["pycocoevalcap>=1.2"]
+dev = [
+  "pytest>=8.3,<9",
+  "pytest-cov>=5,<7",
+  "ruff>=0.9,<1",
+]
+
+[project.scripts]
+scst-captioner = "scst_captioner.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["notebooks/legacy"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["E501"]

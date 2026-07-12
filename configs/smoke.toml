@@ -1,0 +1,60 @@
+# Small decoder profile for a local end-to-end smoke run. Point [data] at a
+# tiny Flickr8K-format fixture and create its manifest before running.
+[model]
+encoder_name = "google/vit-base-patch16-384"
+encoder_revision = "2960116e809e2fca84146dbb240289aee7db4827"
+tokenizer_name = "distilbert-base-uncased"
+tokenizer_revision = "12040accade4e8a0f71eabdb258fecc2e7e948be"
+max_seq_length = 12
+d_model = 64
+num_heads = 4
+feedforward_dim = 128
+num_decoder_layers = 1
+dropout = 0.1
+activation = "relu"
+freeze_encoder = true
+
+[data]
+images_dir = "data/smoke/Images"
+captions_file = "data/smoke/captions.txt"
+split_manifest = "data/smoke/split.json"
+min_caption_words = 1
+expected_references_per_image = 5
+num_workers = 0
+horizontal_flip_probability = 0.0
+rotation_degrees = 0.0
+color_jitter_probability = 0.0
+brightness = 0.0
+hue = 0.0
+
+[xe]
+epochs = 1
+batch_size = 2
+learning_rate = 0.0001
+weight_decay = 0.01
+warmup_ratio = 0.0
+gradient_clip_norm = 1.0
+patience = 1
+
+[scst]
+epochs = 1
+batch_size = 2
+learning_rate = 0.00005
+lr_decay = 1.0
+gradient_clip_norm = 1.0
+reward = "nltk_meteor"
+baseline = "greedy"
+sample_model_mode = "eval"
+
+[evaluation]
+beam_size = 2
+length_penalty_alpha = 0.7
+include_spice = false
+metrics_backend = "coco"
+
+[runtime]
+seed = 42
+deterministic = true
+device = "cpu"
+amp = false
+output_dir = "artifacts/smoke"

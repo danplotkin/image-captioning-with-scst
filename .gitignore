@@ -1,0 +1,23 @@
+.DS_Store
+.coverage
+.pytest_cache/
+.ruff_cache/
+.venv/
+__pycache__/
+*.egg-info/
+*.py[cod]
+/build/
+/dist/
+
+# External data and generated experiment artifacts
+/data/
+/artifacts/
+/checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# Local editor and notebook state
+.idea/
+.vscode/
+.ipynb_checkpoints/

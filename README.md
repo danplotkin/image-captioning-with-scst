@@ -1,202 +1,219 @@
-# Advanced Image Captioning Transformer with Reinforcement Learning Optimization in PyTorch
+# Image Captioning with Self-Critical Sequence Training
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/danplotkin/image_captioning_with_scst/blob/main/ImageCaptioner.ipynb)
+A reproducible, CPTR-inspired image captioner built with a pretrained ViT encoder,
+an autoregressive Transformer decoder, cross-entropy (XE) pretraining, and
+self-critical sequence training (SCST).
 
-## About
+This repository is now a normal Python package and CLI. The original Colab notebook
+is preserved unchanged under [`notebooks/legacy/`](notebooks/legacy/ImageCaptioner.ipynb)
+for historical inspection; it is not the executable source of truth.
 
-This repository contains a Colab Notebook that implements a two-step training process to train an image captioner.
+## Project status
 
-We implement a baseline transformer image captioning model using the CPTR architecture, as described in the research paper "[CPTR: Full Transformer Network for Image Captioning](https://arxiv.org/pdf/2101.10804)" by Liu et al. (2021).
+The implementation migration and offline correctness tests are complete. A fresh
+Flickr8K training/evaluation run is still required before publishing new model
+scores because the dataset and historical `cptr.pt`/`cptr_scst.pt` files are not in
+this repository.
 
-<img src='https://media.licdn.com/dms/image/C4D12AQGA3qFX3peTbw/article-cover_image-shrink_720_1280/0/1648387317335?e=2147483647&v=beta&t=4VOpEV8ptM4B4Q0UTZJUWqv4QFQvIuCubBoQLzJazds' width='800'>
+The old README/notebook scores are **historical and unverified**. The notebook was
+executed out of order, separate model objects shared one global ViT and decoder,
+the latest recorded SCST run was initialized after an older SCST checkpoint had
+already mutated that shared decoder, and its evaluations mixed single-reference
+greedy and multi-reference beam protocols. Those numbers are not regression
+targets for the corrected code.
 
-We optimize this baseline model with Self-critical Sequence Training (SCST), proposed in "[Self-critical Sequence Training for Image Captioning](https://arxiv.org/abs/1612.00563)" by Rennie et al. (2016), which is an improved variant of the popular REINFORCE algorithm. Below is a depiction of this process from the original paper:
+The detailed evidence and acceptance gates are in:
 
-<img src='https://github.com/danplotkin/image_captioning_with_scst/blob/main/images/SCST.png'>
+- [`docs/AUDIT.md`](docs/AUDIT.md)
+- [`docs/MIGRATION_PLAN.md`](docs/MIGRATION_PLAN.md)
+- [`docs/EXPERIMENT_PROTOCOL.md`](docs/EXPERIMENT_PROTOCOL.md)
+- [`docs/RESEARCH_ALIGNMENT.md`](docs/RESEARCH_ALIGNMENT.md)
+- [`docs/CHECKPOINT_COMPATIBILITY.md`](docs/CHECKPOINT_COMPATIBILITY.md)
 
-Instead of using CIDEr as our reward function, we use the METEOR score, introduced in "[Meteor: An Automatic Metric for MT Evaluation with High Levels of Correlation with Human Judgments](https://www.cs.cmu.edu/~alavie/METEOR/pdf/Banerjee-Lavie-2005-METEOR.pdf)".
+## What was corrected
 
-## Dataset
+- The greedy self-critical baseline always uses `model.eval()` and no gradient
+  recording. The sampled branch defaults to eval mode while retaining autograd;
+  train-mode sampling is an explicit configuration option.
+- SCST batches one image once and scores both rollouts against all references.
+- The first EOS action is included in the policy loss and every later action is
+  excluded with an explicit boolean mask.
+- Batched generation preserves `[batch, time]` for batch size one.
+- PAD/BOS/MASK/UNK and other non-EOS special tokens are excluded from decoding.
+- Every model instance owns an independent encoder and decoder while retaining
+  the notebook's state-dict key layout for legacy weight loading.
+- Flickr8K splits are image-level, ordered, persisted, disjoint, validated, and
+  tied to caption/source hashes. Short references are no longer silently deleted.
+- Augmentation happens on PIL images before the pinned ViT image processor
+  rescales and normalizes them.
+- Research evaluation uses one fixed test manifest and the COCO caption suite;
+  NLTK METEOR training reward is explicitly distinguished from COCO METEOR.
+- Checkpoints contain stage, resolved config, optimizer/scheduler/scaler state,
+  RNG and DataLoader state, selection metric, data identity, and code/environment
+  provenance. Raw notebook weights remain loadable but cannot exactly resume.
 
-We use the [Flickr8K dataset](https://www.kaggle.com/datasets/adityajn105/flickr8k). Our random train-val-test splits are shown below:
+## Research scope
 
-- **Number of training examples:** 23890
-- **Number of validation examples:** 5975
-- **Number of test examples:** 7470
+This is a **CPTR-inspired adaptation**, not an exact CPTR reproduction. CPTR trains
+its pretrained ViT-initialized encoder end to end on MS COCO; this project's
+default freezes a pinned pretrained ViT and targets Flickr8K. SCST is also adapted
+to use all-reference NLTK METEOR by default, although cached CIDEr-D is available
+as an optional, more paper-aligned reward.
 
-## Baseline Training
+The original SCST paper defines the baseline as the reward from the model's own
+test-time inference algorithm. Greedy decoding is canonical and remains the
+training baseline; beam-3 is a separate evaluation factor. See the
+[SCST paper](https://openaccess.thecvf.com/content_cvpr_2017/papers/Rennie_Self-Critical_Sequence_Training_CVPR_2017_paper.pdf),
+[CPTR paper](https://arxiv.org/pdf/2101.10804), and canonical
+[COCO caption evaluator](https://github.com/tylin/coco-caption).
 
-### Configurations
+## Installation
 
-#### Hyperparameters
+Python 3.11–3.13 is supported. With [`uv`](https://docs.astral.sh/uv/):
 
-- **Batch Size:** 40
-- **Embedding Dimensions:** 768
-- **Number of Decoder Layers:** 4
-- **Number of Attention Heads:** 12
-- **Dense Neurons:** 1536
-- **Max Epochs:** 15
-
-#### Learning Rate Schedule and Early Stopping
-
-- We use a linear warmup learning rate method that warms up to the rate of 1e-4, which then decays using cosine decaying.
-- Our early stopping procedure has a patience of 1 and reverts to the best weights based on the validation loss.
-
-#### Pretrained Components
-
-- **Tokenizer:** `distilbert-base-uncased`
-- **ViT:** `google/vit-base-patch16-384`
-
-#### Hardware
-
-- **GPU:** L4 Colab GPU
-
-#### Loss Function and Metric
-
-- **Loss Function:** Zero-masked Categorical Cross Entropy Loss (XE)
-- **Metric:** Zero-masked Accuracy
-
-### Results
-
-#### Early Stopping
-
-Our training ended at epoch 10, and we reverted back to weights used at the end of epoch 9.
-
-#### Train and Validation Loss by Epoch
-
-<img src='https://github.com/danplotkin/image_captioning_with_scst/blob/main/images/CPTR_LOSS.png'>
-
-#### Train Validation Accuracy by Epoch
-
-<img src='https://github.com/danplotkin/image_captioning_with_scst/blob/main/images/CPTR_ACCURACY.png'>
-
-## Self-critical Sequence Training (SCST)
-
-### Configurations
-
-#### Hyperparameters
-
-- **Epochs:** 8
-- **Batch Size:** 12
-
-#### Learning Rate Schedule
-
-- **Initial Learning Rate:** 1e-5. We then decay the learning rate by 0.5 for the remaining epochs.
-
-#### Loss Function and Rewards
-
-We use METEOR score as our non-differentiable reward function. We aim to maximize reward by minimizing the loss function with the following gradient computation:
-
-$$
-\nabla_{\theta} L(\theta) = - \mathbb{E} _ {w^s \sim p{\theta}} \left[ (r(w^s) - b) \nabla_{\theta} \log p_{\theta}(w^s) \right]
-$$
-
-where:  
-- $\theta$ represents the model parameters,
-- $w^s$ is a sampled sequence from the model's probability distribution $p_{\theta}$,
-- $r(w^s)$ is the reward associated with the sequence $w^s$,
-- $b$ is the baseline reward, which is typically the reward of a baseline sequence (e.g., the sequence generated by the current model without sampling).
-
-#### Hardware
-
-- **GPU:** Colab L4 GPU
-
-### Results
-
-#### Batched-test single-reference METEOR Before and After SCST with Greedy Decoding
-
-| Metric        | Before SCST | After SCST |
-|---------------|-------------|------------|
-| **METEOR**    | 0.276       | 0.301  |
-
-## Final Scores
-
-We use **beam search** to decode our captions for final evaluation and generation, with a beam size of 3. A simple normalized function is used as the score function for beam search. It is defined as:
-
-$$
-\text{score}(y) = \log P(y \mid x) = \frac{1}{T} \sum_{i=1}^{T} \log P(y_i \mid y_1, \ldots, y_{i-1}, x)
-$$
-
-Where at each step, we selected the 3 largest values of $\text{score}(y)$.
-
-| METEOR | BLEU 1 | BLEU 2 | BLEU 3 | BLEU 4 |
-|--------|--------|--------|--------|--------|
-| 0.4659 | 0.5528 | 0.4006 | 0.2714 | 0.1743 |
-
-### Further Improvements
-
-We can further improve the performance of the model by:
-
-- Using a larger dataset like Flickr32k or MSCOCO to train our model.
-- Making our model more complex with more decoder layers.
-- Running our SCST for more epochs.
-
-### Citations
-
-```
-@article{DBLP:journals/corr/RennieMMRG16,
-  author       = {Steven J. Rennie and
-                  Etienne Marcheret and
-                  Youssef Mroueh and
-                  Jerret Ross and
-                  Vaibhava Goel},
-  title        = {Self-critical Sequence Training for Image Captioning},
-  journal      = {CoRR},
-  volume       = {abs/1612.00563},
-  year         = {2016},
-  url          = {http://arxiv.org/abs/1612.00563},
-  eprinttype    = {arXiv},
-  eprint       = {1612.00563},
-  timestamp    = {Tue, 23 Jul 2019 16:55:13 +0200},
-  biburl       = {https://dblp.org/rec/journals/corr/RennieMMRG16.bib},
-  bibsource    = {dblp computer science bibliography, https://dblp.org}
-}
-
-@article{DBLP:journals/corr/abs-2101-10804,
-  author       = {Wei Liu and
-                  Sihan Chen and
-                  Longteng Guo and
-                  Xinxin Zhu and
-                  Jing Liu},
-  title        = {{CPTR:} Full Transformer Network for Image Captioning},
-  journal      = {CoRR},
-  volume       = {abs/2101.10804},
-  year         = {2021},
-  url          = {https://arxiv.org/abs/2101.10804},
-  eprinttype    = {arXiv},
-  eprint       = {2101.10804},
-  timestamp    = {Wed, 12 Oct 2022 13:48:47 +0200},
-  biburl       = {https://dblp.org/rec/journals/corr/abs-2101-10804.bib},
-  bibsource    = {dblp computer science bibliography, https://dblp.org}
-}
-
-@article{DBLP:journals/corr/VaswaniSPUJGKP17,
-  author       = {Ashish Vaswani and
-                  Noam Shazeer and
-                  Niki Parmar and
-                  Jakob Uszkoreit and
-                  Llion Jones and
-                  Aidan N. Gomez and
-                  Lukasz Kaiser and
-                  Illia Polosukhin},
-  title        = {Attention Is All You Need},
-  journal      = {CoRR},
-  volume       = {abs/1706.03762},
-  year         = {2017},
-  url          = {http://arxiv.org/abs/1706.03762},
-  eprinttype    = {arXiv},
-  eprint       = {1706.03762},
-  timestamp    = {Sat, 23 Jan 2021 01:20:40 +0100},
-  biburl       = {https://dblp.org/rec/journals/corr/VaswaniSPUJGKP17.bib},
-  bibsource    = {dblp computer science bibliography, https://dblp.org}
-}
-
-@article{article,
-  author       = {Lavie, Alon and Agarwal, Abhaya},
-  year         = {2007},
-  month        = {07},
-  pages        = {228-231},
-  title        = {METEOR: An automatic metric for MT evaluation with high levels of correlation with human judgments}
-}
+```bash
+uv sync --extra dev
+uv run pytest
+uv run ruff check .
 ```
 
+For COCO metrics and CIDEr-D reward support:
+
+```bash
+uv sync --extra dev --extra eval
+```
+
+COCO METEOR/PTB tokenization requires a working Java runtime. The default NLTK
+METEOR reward requires explicitly installed WordNet/OMW data and never downloads it implicitly:
+
+```bash
+uv run python -m nltk.downloader wordnet omw-1.4
+```
+
+The committed `uv.lock` fixes the Python dependency graph. The Hugging Face ViT,
+tokenizer, and image-processor revisions are pinned in
+[`configs/default.toml`](configs/default.toml).
+
+## Data layout and split preparation
+
+Place the external Flickr8K files at the configured paths (they are intentionally
+gitignored):
+
+```text
+data/flickr8k/
+  Images/
+  captions.txt
+  Flickr_8k.trainImages.txt   # optional but preferred
+  Flickr_8k.devImages.txt     # optional but preferred
+  Flickr_8k.testImages.txt    # optional but preferred
+```
+
+Create the conventional split manifest when the three distributed split files are
+available:
+
+```bash
+uv run scst-captioner prepare-data \
+  --official-train data/flickr8k/Flickr_8k.trainImages.txt \
+  --official-validation data/flickr8k/Flickr_8k.devImages.txt \
+  --official-test data/flickr8k/Flickr_8k.testImages.txt
+
+uv run scst-captioner validate-data
+```
+
+Without those files, `prepare-data` creates and records a deterministic 80/10/10
+image-level split from sorted image IDs and seed 42. The manifest records the
+algorithm version, exact fractions, filtering policy, source hashes, excluded
+images, and ordered IDs.
+
+## Training
+
+```bash
+# Teacher-forced pretraining
+uv run scst-captioner train-xe \
+  --config configs/default.toml \
+  --output-dir artifacts/xe
+
+# Corrected image-level, all-reference SCST
+uv run scst-captioner train-scst \
+  --config configs/default.toml \
+  --xe-checkpoint artifacts/xe/best.pt \
+  --output-dir artifacts/scst
+```
+
+Both commands save `best.pt`, `last.pt`, `history.json`, `resolved_config.json`,
+and `provenance.json`. Resume from `last.pt` with `--resume`; SCST does not require
+`--xe-checkpoint` when resuming.
+
+The default reward is `nltk_meteor`. Set `scst.reward = "cider_d"` to use cached,
+symmetrically normalized CIDEr-D with completion-sensitive EOS handling. Set
+`scst.sample_model_mode = "train"` only for an explicitly labeled dropout-policy
+ablation.
+
+## Evaluation
+
+The required apples-to-apples comparison is generated automatically:
+
+```bash
+uv run scst-captioner evaluate-matrix \
+  --config configs/default.toml \
+  --xe-checkpoint artifacts/xe/best.pt \
+  --scst-checkpoint artifacts/scst/best.pt \
+  --output-dir artifacts/evaluation-matrix
+```
+
+It produces all four cells:
+
+| checkpoint | greedy | beam-3 |
+|---|---:|---:|
+| XE-selected | COCO suite + exact configured reward | COCO suite + exact configured reward |
+| SCST-selected | COCO suite + exact configured reward | COCO suite + exact configured reward |
+
+The command rejects wrong stages, mismatched model/reward/data protocols, split
+hash mismatches, raw/unverified legacy weights, and an SCST checkpoint whose
+recorded parent is not the supplied XE checkpoint. It stores predictions with
+completion state, per-image scores, checkpoint hashes, full protocol hashes,
+resolved config, and environment metadata.
+
+Caption one image with either decoder:
+
+```bash
+uv run scst-captioner caption path/to/image.jpg \
+  --checkpoint artifacts/scst/best.pt \
+  --decoding beam
+```
+
+## Legacy checkpoints
+
+The model preserves the notebook parameter paths, including
+`backbone.backbone.*`, `positional_embedding.*`, `decoder.layers.*`, and `fc.*`.
+A raw historical state dict can therefore be strictly wrapped:
+
+```bash
+uv run scst-captioner convert-checkpoint \
+  --input cptr.pt \
+  --output artifacts/legacy-cptr.pt \
+  --stage xe
+```
+
+Conversion records unknown lineage fields; it does not invent a split, optimizer,
+RNG state, or scientific validity. Unverified legacy artifacts are blocked from
+the four-way research matrix and require an explicit override for one-off
+historical evaluation.
+
+## Validation boundary
+
+The test suite is hermetic: it injects tiny encoders, tokenizers, scorers, images,
+and datasets, so it does not download a ViT or Flickr8K. It covers data leakage,
+manifest stability, model independence, batch-one decoding, first-EOS behavior,
+dropout modes, REINFORCE gradients, cached multi-reference rewards, checkpoint
+round trips, strict metric alignment, and tiny CPU XE/SCST optimizer steps.
+
+Fresh real-data training, the real four-cell metric matrix, repeated seeds, and
+confidence intervals are Gate 6 in the migration plan. Until those artifacts
+exist, this repository makes no replacement performance claim.
+
+## Dataset and licensing note
+
+Flickr images are external assets with their own owners/licensing terms and are
+not relicensed by this repository. A code license has not yet been selected; add
+one deliberately before redistributing the project as open source.

@@ -1,0 +1,58 @@
+[model]
+encoder_name = "google/vit-base-patch16-384"
+encoder_revision = "2960116e809e2fca84146dbb240289aee7db4827"
+tokenizer_name = "distilbert-base-uncased"
+tokenizer_revision = "12040accade4e8a0f71eabdb258fecc2e7e948be"
+max_seq_length = 80
+d_model = 768
+num_heads = 12
+feedforward_dim = 1536
+num_decoder_layers = 4
+dropout = 0.1
+activation = "relu"
+freeze_encoder = true
+
+[data]
+images_dir = "data/flickr8k/Images"
+captions_file = "data/flickr8k/captions.txt"
+split_manifest = "data/splits/flickr8k.json"
+min_caption_words = 1
+expected_references_per_image = 5
+num_workers = 2
+horizontal_flip_probability = 0.4
+rotation_degrees = 10.0
+color_jitter_probability = 0.3
+brightness = 0.3
+hue = 0.1
+
+[xe]
+epochs = 15
+batch_size = 40
+learning_rate = 0.0001
+weight_decay = 0.01
+warmup_ratio = 0.1
+gradient_clip_norm = 1.0
+patience = 2
+
+[scst]
+epochs = 8
+batch_size = 12
+learning_rate = 0.00005
+lr_decay = 0.85
+gradient_clip_norm = 1.0
+reward = "nltk_meteor"
+baseline = "greedy"
+sample_model_mode = "eval"
+
+[evaluation]
+beam_size = 3
+length_penalty_alpha = 0.7
+include_spice = false
+metrics_backend = "coco"
+
+[runtime]
+seed = 42
+deterministic = false
+device = "auto"
+amp = true
+output_dir = "artifacts"
