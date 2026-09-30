@@ -57,6 +57,17 @@ def test_checkpoint_protocol_rejects_scst_reward_mismatch_and_raw_stage() -> Non
     with pytest.raises(ValueError, match="reward/baseline/sampling"):
         cli._validate_checkpoint_scientific_protocol(changed, config)
 
+    old_cider = json.loads(json.dumps(checkpoint))
+    old_cider["provenance"]["reward_protocol"] = {
+        "name": "cider_d",
+        "implementation": "pycocoevalcap.cider.cider_scorer.CiderScorer",
+        "package_version": "1.2",
+        "tokenization": "nltk_treebank_lowercase_coco_punctuation_v1",
+        "eos_policy": "append_on_completion",
+    }
+    with pytest.raises(ValueError, match="reward implementation"):
+        cli._validate_checkpoint_scientific_protocol(old_cider, config)
+
     with pytest.raises(ValueError, match="unverified stage"):
         cli._validate_checkpoint_config({"legacy": True}, config, expected_stage="xe")
     cli._validate_checkpoint_config(
@@ -177,7 +188,7 @@ def test_matrix_command_preflights_lineage_and_writes_four_complete_cells(
         prediction = PredictionRecord("image.jpg", "a caption")
         summary = {"stage": kwargs["expected_stage"], "provenance": {}}
         objective = {
-            "name": "nltk_meteor",
+            "name": config.scst.reward,
             "mean": 0.5,
             "per_image": [{"image_id": "image.jpg", "score": 0.5, "completed": True}],
         }

@@ -129,7 +129,7 @@ def test_cider_d_uses_all_references_and_stable_document_frequency(monkeypatch) 
 
         def compute_cider(self):
             assert self.document_frequency == {("reference",): 2.0}
-            assert self.ref_len == pytest.approx(math.log(2.0))
+            assert self.corpus_ref_len == pytest.approx(math.log(2.0))
             return [0.4 + index / 10 for index in range(len(self.items))]
 
         def compute_score(self):

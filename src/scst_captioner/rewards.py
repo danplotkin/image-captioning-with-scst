@@ -14,7 +14,7 @@ CaptionLike: TypeAlias = str | Sequence[str]
 
 NLTK_METEOR_REWARD_NAME = "nltk_meteor"
 CIDER_D_REWARD_NAME = "cider_d"
-CIDER_D_TOKENIZATION = "nltk_treebank_lowercase_coco_punctuation_v1"
+CIDER_D_TOKENIZATION = "nltk_treebank_casefold_coco_punctuation_v2"
 
 _COCO_PUNCTUATION = {
     "''",
@@ -182,13 +182,20 @@ def _load_cider_d_scorer() -> type[Any]:
     try:
         # This scorer contains the clipping and Gaussian length penalty that
         # distinguish the COCO CIDEr-D implementation.
-        from pycocoevalcap.cider.cider_scorer import CiderScorer
+        from scst_captioner._cider import CiderDScorer
     except ImportError as error:  # pragma: no cover - depends on the environment
         raise RewardDependencyError(
             "The 'cider_d' reward requires the optional evaluation dependency. "
             "Install the project with `pip install -e '.[eval]'`."
         ) from error
-    return CiderScorer
+    return CiderDScorer
+
+
+def _validate_cider_parameters(n: int, sigma: float) -> None:
+    if type(n) is not int or n < 1:
+        raise RewardInputError("n must be a positive integer")
+    if not math.isfinite(sigma) or sigma <= 0:
+        raise RewardInputError("sigma must be finite and positive")
 
 
 def _normalize_cider_caption(caption: CaptionLike) -> str:
@@ -197,14 +204,12 @@ def _normalize_cider_caption(caption: CaptionLike) -> str:
     from nltk.tokenize import TreebankWordTokenizer
 
     text = caption if isinstance(caption, str) else " ".join(caption)
-    text = text.strip()
+    text = text.strip().casefold()
     completed = text.endswith("<eos>")
     if completed:
         text = text[: -len("<eos>")].rstrip()
     tokens = [
-        token
-        for token in TreebankWordTokenizer().tokenize(text.lower())
-        if token not in _COCO_PUNCTUATION
+        token for token in TreebankWordTokenizer().tokenize(text) if token not in _COCO_PUNCTUATION
     ]
     if completed:
         tokens.append("<eos>")
@@ -225,19 +230,19 @@ class CiderDReward:
         n: int = 4,
         sigma: float = 6.0,
     ) -> None:
+        _validate_cider_parameters(n, sigma)
         if not reference_corpus:
             raise RewardInputError("CIDEr-D reference corpus cannot be empty")
+        prepared_corpus = _prepare_reference_corpus(
+            reference_corpus,
+            expected_references_per_image=expected_references_per_image,
+        )
         self.expected_references_per_image = expected_references_per_image
         self.n = n
         self.sigma = sigma
         scorer_type = _load_cider_d_scorer()
         document_scorer = scorer_type(n=n, sigma=sigma)
-        for image_references in reference_corpus:
-            if (
-                expected_references_per_image is not None
-                and len(image_references) != expected_references_per_image
-            ):
-                raise RewardInputError("CIDEr-D reference corpus has an unexpected reference count")
+        for image_references in prepared_corpus:
             document_scorer += (
                 None,
                 [_normalize_cider_caption(reference) for reference in image_references],
@@ -266,7 +271,7 @@ class CiderDReward:
                 [_normalize_cider_caption(reference) for reference in image_references],
             )
         scorer.document_frequency = self.document_frequency
-        scorer.ref_len = self.ref_len
+        scorer.corpus_ref_len = self.ref_len
         scores = tuple(float(score) for score in scorer.compute_cider())
         if len(scores) != len(predictions) or any(not math.isfinite(score) for score in scores):
             raise RuntimeError("CIDEr-D returned invalid per-image rewards")
@@ -310,10 +315,7 @@ def cider_d_rewards(
     loaded only when this function is called.
     """
 
-    if n < 1:
-        raise RewardInputError("n must be positive")
-    if sigma <= 0:
-        raise RewardInputError("sigma must be positive")
+    _validate_cider_parameters(n, sigma)
     prepared_predictions, prepared_references = _prepare_reward_inputs(
         predictions,
         references,
@@ -342,7 +344,7 @@ def cider_d_rewards(
             )
         document_scorer.compute_doc_freq()
         scorer.document_frequency = document_scorer.document_frequency
-        scorer.ref_len = math.log(float(len(prepared_corpus)))
+        scorer.corpus_ref_len = math.log(float(len(prepared_corpus)))
         raw_scores = scorer.compute_cider()
 
     scores = tuple(float(score) for score in raw_scores)

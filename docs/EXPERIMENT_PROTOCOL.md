@@ -164,8 +164,21 @@ named experiment; it is not required merely because beam is also evaluated.
 
 ## Reward protocol
 
-The default project adaptation optimizes multi-reference METEOR rather than the
-original SCST paper's CIDEr-D reward. For NLTK METEOR:
+The default reward is multi-reference CIDEr-D (`scst.reward = "cider_d"`).
+Its production adapter case-folds and Treebank-tokenizes both sides, filters
+COCO punctuation, caches full-train document frequencies once, appends `<eos>`
+only to completed predictions, and records that tokenization/version. Training
+and validation checkpoint selection use the same reward implementation.
+Both document frequencies and their log-corpus-size denominator stay fixed to
+the training split, including singleton validation batches. The v2 adapter
+preserves COCO's clipping, Gaussian length penalty, and 10x score scaling while
+preventing its scorer from replacing the corpus size with the batch size.
+Tokenization is a symmetric Treebank approximation, not exact Java PTB
+tokenization. The exact training reward is therefore reported separately from
+the standard evaluation CIDEr score.
+
+NLTK METEOR remains available as an explicitly configured alternative
+(`scst.reward = "nltk_meteor"`):
 
 ```python
 meteor_score(
@@ -184,11 +197,9 @@ implementation, report both with unambiguous names, for example
 primary objective-alignment comparison must include the exact training reward
 implementation on validation/test predictions.
 
-CIDEr-D is a declared alternative for closer alignment with the original SCST
-experiment. Its production adapter case-folds and Treebank-tokenizes both sides,
-filters COCO punctuation, caches full-train document frequencies once, appends
-`<eos>` only to completed predictions, and records that tokenization/version.
-It remains a different experiment from NLTK METEOR optimization.
+CIDEr-D optimization remains a different experiment from NLTK METEOR
+optimization. Begin from an XE checkpoint when changing rewards; do not resume
+an SCST checkpoint with a different reward protocol.
 
 ## Generation protocol
 

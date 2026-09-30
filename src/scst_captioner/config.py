@@ -59,7 +59,7 @@ class SCSTConfig:
     learning_rate: float = 5e-5
     lr_decay: float = 0.85
     gradient_clip_norm: float = 1.0
-    reward: Literal["nltk_meteor", "cider_d"] = "nltk_meteor"
+    reward: Literal["nltk_meteor", "cider_d"] = "cider_d"
     baseline: Literal["greedy"] = "greedy"
     sample_model_mode: Literal["train", "eval"] = "eval"
 

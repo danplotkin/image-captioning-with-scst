@@ -40,7 +40,7 @@ batch_size = 12
 learning_rate = 0.00005
 lr_decay = 0.85
 gradient_clip_norm = 1.0
-reward = "nltk_meteor"
+reward = "cider_d"
 baseline = "greedy"
 sample_model_mode = "eval"
 

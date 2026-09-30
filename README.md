@@ -46,8 +46,8 @@ The detailed evidence and acceptance gates are in:
   tied to caption/source hashes. Short references are no longer silently deleted.
 - Augmentation happens on PIL images before the pinned ViT image processor
   rescales and normalizes them.
-- Research evaluation uses one fixed test manifest and the COCO caption suite;
-  NLTK METEOR training reward is explicitly distinguished from COCO METEOR.
+- Research evaluation uses one fixed test manifest and the COCO caption suite,
+  alongside the exact configured training reward.
 - Checkpoints contain stage, resolved config, optimizer/scheduler/scaler state,
   RNG and DataLoader state, selection metric, data identity, and code/environment
   provenance. Raw notebook weights remain loadable but cannot exactly resume.
@@ -56,9 +56,8 @@ The detailed evidence and acceptance gates are in:
 
 This is a **CPTR-inspired adaptation**, not an exact CPTR reproduction. CPTR trains
 its pretrained ViT-initialized encoder end to end on MS COCO; this project's
-default freezes a pinned pretrained ViT and targets Flickr8K. SCST is also adapted
-to use all-reference NLTK METEOR by default, although cached CIDEr-D is available
-as an optional, more paper-aligned reward.
+default freezes a pinned pretrained ViT and targets Flickr8K. SCST uses cached,
+multi-reference CIDEr-D by default. NLTK METEOR remains an optional reward.
 
 The original SCST paper defines the baseline as the reward from the model's own
 test-time inference algorithm. Greedy decoding is canonical and remains the
@@ -72,19 +71,15 @@ training baseline; beam-3 is a separate evaluation factor. See the
 Python 3.11–3.13 is supported. With [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
-uv sync --extra dev
+uv sync --extra dev --extra eval
 uv run pytest
 uv run ruff check .
 ```
 
-For COCO metrics and CIDEr-D reward support:
-
-```bash
-uv sync --extra dev --extra eval
-```
-
-COCO METEOR/PTB tokenization requires a working Java runtime. The default NLTK
-METEOR reward requires explicitly installed WordNet/OMW data and never downloads it implicitly:
+The `eval` extra supplies the default CIDEr-D reward and COCO metrics.
+COCO METEOR/PTB tokenization requires a working Java runtime; the CIDEr-D training
+reward does not. Only the optional `nltk_meteor` reward requires explicitly
+installed WordNet/OMW data and never downloads it implicitly:
 
 ```bash
 uv run python -m nltk.downloader wordnet omw-1.4
@@ -144,10 +139,19 @@ Both commands save `best.pt`, `last.pt`, `history.json`, `resolved_config.json`,
 and `provenance.json`. Resume from `last.pt` with `--resume`; SCST does not require
 `--xe-checkpoint` when resuming.
 
-The default reward is `nltk_meteor`. Set `scst.reward = "cider_d"` to use cached,
-symmetrically normalized CIDEr-D with completion-sensitive EOS handling. Set
+The default reward is `cider_d`: cached, symmetrically normalized CIDEr-D with
+completion-sensitive EOS handling. Both training and validation checkpoint
+selection use this reward. Set `scst.reward = "nltk_meteor"` for a METEOR run.
+Start a new CIDEr-D run from an XE checkpoint instead of resuming a METEOR SCST
+checkpoint, whose reward protocol differs. Evaluation still reports BLEU-1–4,
+METEOR, ROUGE-L, and CIDEr, plus the exact configured training reward. Set
 `scst.sample_model_mode = "train"` only for an explicitly labeled dropout-policy
 ablation.
+
+The CIDEr-D adapter fixes both document frequencies and the IDF corpus size to
+the training split, so rewards are independent of batch size. Its v2 reward
+protocol rejects older CIDEr-D checkpoints that used a batch-dependent IDF
+denominator; start a fresh SCST run from XE for the corrected scores.
 
 ## Evaluation
 

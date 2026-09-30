@@ -33,7 +33,7 @@ publication when relevant.
 | CPTR-style full-Transformer captioning | Uses a ViT representation as memory for a Transformer language decoder. | Uses a pretrained Hugging Face ViT and freezes it by default. Model construction, data, and training recipe differ from an exact CPTR reproduction. |
 | REINFORCE sequence objective | Uses sampled sequence log probability multiplied by a sequence-level advantage with the correct negative sign. | Uses an explicit first-EOS action mask and implementation-specific batching. |
 | Self-critical baseline | Uses reward of the model's own greedy test-time output as the baseline. | The historical notebook incorrectly left dropout active. The corrected protocol runs greedy baseline and sampled policy in eval mode while retaining autograd for sampled log probabilities. |
-| Original SCST reward | SCST supports nondifferentiable sequence-level rewards. | Original SCST emphasizes CIDEr-D; this project intentionally uses multi-reference METEOR by default. That is an adaptation, not a reproduction. |
+| Original SCST reward | SCST supports nondifferentiable sequence-level rewards. | The default is multi-reference CIDEr-D, with project-specific tokenization and cached training-corpus document frequencies. METEOR is an optional alternative. |
 | Multiple human references | Both sampled and baseline captions are scored against the complete reference set for the image. | Historical notebook SCST used one reference at a time and is retained only as legacy behavior. |
 | Test-time inference baseline | Greedy baseline is the declared default inference approximation. | Beam-3 is also evaluated. It is a separate decoder factor and does not retroactively make the greedy-baseline training invalid. |
 | Caption evaluation | Uses one fixed image list, all references, and corpus/COCO-compatible metrics. | Historical mean sentence BLEU and mixed-protocol tables are not research-comparable. |
@@ -56,16 +56,16 @@ must not be confused with the corrected default.
 
 SCST is not inherently restricted to CIDEr. Its estimator only requires a
 sequence-level reward that can be evaluated on sampled and baseline captions.
-Multi-reference METEOR is therefore a valid project objective.
+The default is multi-reference CIDEr-D; METEOR is an optional project objective.
 
-The adaptation has two implications:
+The reward choice has two implications:
 
-1. Results should say “SCST with METEOR reward,” not imply reproduction of the
-   original CIDEr-D optimization experiment.
+1. Results should name the configured reward (CIDEr-D by default, or NLTK
+   METEOR when explicitly selected), without implying exact paper reproduction.
 2. The exact training reward implementation should be applied to evaluation
-   predictions and reported alongside standardized COCO metrics. NLTK and COCO
-   METEOR variants may differ in tokenization/resources and must have distinct
-   names.
+   predictions and reported alongside standardized COCO metrics. The cached
+   training CIDEr-D and evaluation CIDEr use different corpus/tokenization
+   protocols; NLTK and COCO METEOR also require distinct names.
 
 The reward must receive all references. A single reference can penalize a
 semantically valid caption merely because it chooses a different human
@@ -77,7 +77,7 @@ The safe description is:
 
 > A CPTR-inspired image captioner using a frozen pretrained ViT encoder and an
 > autoregressive Transformer decoder, first trained with cross entropy and then
-> fine-tuned with greedy-baseline SCST using multi-reference METEOR reward.
+> fine-tuned with greedy-baseline SCST using multi-reference CIDEr-D reward.
 
 Avoid these stronger descriptions unless a separate verified implementation
 supports them:
@@ -152,5 +152,5 @@ Before publishing a number or conclusion, verify:
 - [ ] metric implementation/version is named;
 - [ ] seed, code revision, environment, and prediction artifact are recorded;
 - [ ] test data was not used for checkpoint selection; and
-- [ ] the language says CPTR-inspired and names the METEOR/frozen-ViT
-      adaptations.
+- [ ] the language says CPTR-inspired and names the configured reward and
+      frozen-ViT adaptation.

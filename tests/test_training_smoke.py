@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import torch
 from torch import nn
 
@@ -108,4 +109,62 @@ def test_tiny_cpu_xe_and_scst_optimizer_steps_complete() -> None:
     )
     assert metrics.images == 1
     assert reward.calls == 2
+    assert not torch.equal(before, policy.step_logits.detach())
+
+
+def test_real_cider_scst_step_and_validation_batch_invariance() -> None:
+    pytest.importorskip("pycocoevalcap")
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from scst_captioner.cli import _make_reward
+    from scst_captioner.config import ExperimentConfig
+    from scst_captioner.generation import GenerationOutput
+
+    torch.manual_seed(0)
+    config = ExperimentConfig()
+    config = replace(config, data=replace(config.data, expected_references_per_image=2))
+    references = [["word", "word"], ["other", "other"]]
+    reward, include_eos = _make_reward(
+        config, [SimpleNamespace(captions=row) for row in references]
+    )
+    assert include_eos is True
+    policy = TinyPolicy()
+    trainer = SCSTTrainer(
+        policy,
+        torch.optim.Adam(policy.parameters(), lr=0.01),
+        tokenizer=TinyTokenizer(),
+        reward=reward,
+        device=torch.device("cpu"),
+        max_new_tokens=2,
+        include_eos_in_reward=include_eos,
+        amp=False,
+    )
+    # Identical decoded text, but only the first sequence actually emitted EOS.
+    output = GenerationOutput(
+        token_ids=torch.tensor([[1, 3, 2], [1, 3, 3]]),
+        action_mask=torch.ones(2, 2, dtype=torch.bool),
+        action_log_probs=None,
+    )
+    assert trainer._decode_for_reward(output) == ["word <eos>", "word"]
+    batch = {
+        "image_ids": ["first.jpg", "second.jpg"],
+        "pixel_values": torch.ones(2, 3, 2, 2),
+        "references": references,
+    }
+    singleton_batches = [
+        {
+            "image_ids": [batch["image_ids"][i]],
+            "pixel_values": batch["pixel_values"][i : i + 1],
+            "references": [references[i]],
+        }
+        for i in range(2)
+    ]
+    assert trainer.evaluate([batch]) == pytest.approx(2.5)
+    assert trainer.evaluate(singleton_batches) == pytest.approx(trainer.evaluate([batch]))
+    before = policy.step_logits.detach().clone()
+    metrics = trainer.train_epoch([batch])
+    assert metrics.images == 2
+    assert torch.isfinite(torch.tensor(metrics.loss))
+    assert metrics.advantage != 0.0
     assert not torch.equal(before, policy.step_logits.detach())

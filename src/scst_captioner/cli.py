@@ -650,7 +650,8 @@ def _reward_protocol_metadata(config: ExperimentConfig) -> dict[str, Any]:
         }
     return {
         "name": "cider_d",
-        "implementation": "pycocoevalcap.cider.cider_scorer.CiderScorer",
+        "implementation": "scst_captioner._cider.CiderDScorer",
+        "document_frequency": "fixed_training_corpus_v2",
         "package_version": package_version,
         "tokenization": CIDER_D_TOKENIZATION,
         "eos_policy": "append_on_completion",
