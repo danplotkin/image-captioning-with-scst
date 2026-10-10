@@ -92,34 +92,98 @@ tokenizer, and image-processor revisions are pinned in
 
 ## Data layout and split preparation
 
-Place the external Flickr8K files at the configured paths (they are intentionally
-gitignored):
+From the project root, run the repeatable setup script:
+
+```bash
+uv sync --extra eval
+uv run --with kagglehub python scripts/setup_flickr8k.py
+```
+
+The script downloads [Flickr8K version 1](https://www.kaggle.com/datasets/adityajn105/flickr8k)
+(approximately 1.1 GB) and the conventional split lists from the
+[Flickr8K annotation archive mirror](https://github.com/jbrownlee/Datasets/releases/tag/Flickr8k).
+It verifies pinned SHA256 hashes for the captions and split lists, validates the
+images and all five references per image, and creates `data/splits/flickr8k.json`:
+
+| Split | Images |
+| --- | ---: |
+| Training | 6,000 |
+| Validation | 1,000 |
+| Test | 1,000 |
+| Excluded from conventional lists | 91 |
+
+All captions for an image stay in the same split. Reuse this manifest for XE,
+SCST, and evaluation. Dataset files and generated manifests are gitignored;
+archive the manifest with experiment artifacts when sharing results.
+
+Rerunning the script reuses existing assets and verifies the saved manifest
+without rewriting it. Once all data and lists are present, the Python script
+requires no network access. Changed captions, split lists, or a conflicting
+manifest cause an error rather than silently changing an experiment's data.
+For an existing custom split, preserve its manifest with the associated experiment
+artifacts before removing it and rerunning setup.
 
 ```text
 data/flickr8k/
   Images/
   captions.txt
-  Flickr_8k.trainImages.txt   # optional but preferred
-  Flickr_8k.devImages.txt     # optional but preferred
-  Flickr_8k.testImages.txt    # optional but preferred
+  Flickr_8k.trainImages.txt
+  Flickr_8k.devImages.txt
+  Flickr_8k.testImages.txt
+data/splits/
+  flickr8k.json
 ```
 
-Create the conventional split manifest when the three distributed split files are
-available:
+To revalidate independently:
 
 ```bash
-uv run scst-captioner prepare-data \
-  --official-train data/flickr8k/Flickr_8k.trainImages.txt \
-  --official-validation data/flickr8k/Flickr_8k.devImages.txt \
-  --official-test data/flickr8k/Flickr_8k.testImages.txt
-
 uv run scst-captioner validate-data
 ```
 
-Without those files, `prepare-data` creates and records a deterministic 80/10/10
-image-level split from sorted image IDs and seed 42. The manifest records the
-algorithm version, exact fractions, filtering policy, source hashes, excluded
-images, and ordered IDs.
+For a deliberate custom split instead of the conventional benchmark, the CLI
+also supports `uv run scst-captioner prepare-data`. Without official split-file
+arguments it creates a deterministic 80/10/10 image-level split with seed 42.
+The conventional setup script rejects such a manifest instead of overwriting it.
+
+## Visual training playground
+
+Open [`playground.ipynb`](notebooks/playground.ipynb) to inspect real Flickr8K images through
+the configured training pipeline:
+
+```bash
+uv sync --extra eval --extra notebook
+uv run jupyter lab notebooks/playground.ipynb
+```
+
+Change `CONFIG_PATH` and the preview controls in the first code cell, then run
+all cells. The notebook shows augmentation stages, normalized image channels,
+ViT patches, caption tokens and shifted targets, actual configured XE/SCST
+batches, attention/loss masks, and model output shapes. It uses the production
+data loaders and model code. The model forward preview runs on a small CPU batch
+without optimizer updates; the configured full-batch shapes are shown separately.
+An optional SCST rollout shows sampled log probabilities and EOS masks. The
+caption decoder is newly initialized, so preview captions are not quality results.
+Pinned Hugging Face components may download on first use.
+
+## CPU smoke run
+
+After setting up Flickr8K, prepare the small real-image fixture and run XE:
+
+```bash
+uv run python scripts/setup_smoke.py
+uv run scst-captioner validate-data --config configs/smoke.toml
+uv run scst-captioner train-xe --config configs/smoke.toml
+```
+
+The repeatable fixture takes the first 16 training, 4 validation, and 4 test
+images from their existing benchmark splits, retaining all five captions per
+image. It writes separate files under `data/smoke/`. The config uses CPU,
+batch size 2, a frozen pretrained ViT, a one-layer 64-wide decoder, and one XE
+epoch (40 training batches and 10 validation batches). Outputs go to
+`artifacts/smoke/xe/`. The 12-token sequence budget is deliberately short.
+This checks the pipeline; use the default configuration for the full experiment.
+For smoke SCST, keep `--config configs/smoke.toml` and initialize from
+`artifacts/smoke/xe/best.pt`.
 
 ## Training
 

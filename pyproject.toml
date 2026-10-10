@@ -25,6 +25,12 @@ dev = [
   "pytest-cov>=5,<7",
   "ruff>=0.9,<1",
 ]
+notebook = [
+  "ipykernel>=6,<8",
+  "ipywidgets>=8,<9",
+  "jupyterlab>=4,<5",
+  "matplotlib>=3.9,<4",
+]
 
 [project.scripts]
 scst-captioner = "scst_captioner.cli:main"

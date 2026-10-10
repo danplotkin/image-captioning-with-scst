@@ -1,11 +1,14 @@
-# Small decoder profile for a local end-to-end smoke run. Point [data] at a
-# tiny Flickr8K-format fixture and create its manifest before running.
+# CPU pipeline check using 16 train / 4 validation / 4 test Flickr8K images.
+# Prepare once (safe to rerun): uv run python scripts/setup_smoke.py
+# Run XE: uv run scst-captioner train-xe --config configs/smoke.toml
+# This smaller decoder checks execution; its weights are not compatible with
+# the default 768-wide decoder. Use this same config for subsequent smoke SCST.
 [model]
 encoder_name = "google/vit-base-patch16-384"
 encoder_revision = "2960116e809e2fca84146dbb240289aee7db4827"
 tokenizer_name = "distilbert-base-uncased"
 tokenizer_revision = "12040accade4e8a0f71eabdb258fecc2e7e948be"
-max_seq_length = 12
+max_seq_length = 12 # Short action/target budget for a quick pipeline check.
 d_model = 64
 num_heads = 4
 feedforward_dim = 128
@@ -28,7 +31,7 @@ brightness = 0.0
 hue = 0.0
 
 [xe]
-epochs = 1
+epochs = 1 # One pass; early stopping needs more epochs to be exercised.
 batch_size = 2
 learning_rate = 0.0001
 weight_decay = 0.01
