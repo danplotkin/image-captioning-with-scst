@@ -70,6 +70,7 @@ from scst_captioner.tokenization import (
     resolve_special_token_ids,
 )
 from scst_captioner.training import SCSTTrainer, XETrainer
+from scst_captioner.training.plots import export_loss_curve
 
 
 def _load_corpus(config: ExperimentConfig) -> tuple[Any, Any]:
@@ -602,6 +603,7 @@ def command_train_xe(args: argparse.Namespace) -> int:
         if improved:
             save_checkpoint(checkpoint, run_dir / "best.pt")
         write_json(run_dir / "history.json", history)
+        export_loss_curve(history, run_dir, stage="xe")
         print(
             f"XE epoch {epoch}: train_loss={train_metrics.loss:.4f}, "
             f"val_loss={validation_metrics.loss:.4f}, val_accuracy={validation_metrics.accuracy:.4f}"
@@ -846,6 +848,7 @@ def command_train_scst(args: argparse.Namespace) -> int:
         if improved:
             save_checkpoint(checkpoint, run_dir / "best.pt")
         write_json(run_dir / "history.json", history)
+        export_loss_curve(history, run_dir, stage="scst")
         print(
             f"SCST epoch {epoch}: loss={train_metrics.loss:.4f}, "
             f"sample={train_metrics.sampled_reward:.4f}, baseline={train_metrics.baseline_reward:.4f}, "

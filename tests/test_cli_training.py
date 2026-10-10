@@ -159,11 +159,16 @@ def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
         assert uninterrupted["progress"]["global_step"] > 0
         assert type(uninterrupted["provenance"]["environment"]["torch"]) is str
         assert (directory / "best.pt").is_file()
+        with Image.open(directory / "loss_curve.png") as curve:
+            assert curve.format == "PNG"
+            assert curve.width > 0 and curve.height > 0
 
         args.resume = str(directory / "epoch1.pt")
         args.output_dir = str(tmp_path / f"{stage}-resumed")
         assert command(args) == 0
         resumed = load_checkpoint_file(Path(args.output_dir) / "last.pt")
+        with Image.open(Path(args.output_dir) / "loss_curve.png") as curve:
+            curve.verify()
         assert resumed["progress"] == uninterrupted["progress"]
         assert resumed["training_state"]["history"] == uninterrupted["training_state"]["history"]
         for name, tensor in uninterrupted["model_state"].items():

@@ -204,6 +204,12 @@ Both commands save `best.pt`, `last.pt`, `history.json`, `resolved_config.json`,
 and `provenance.json`. Resume from `last.pt` with `--resume`; SCST does not require
 `--xe-checkpoint` when resuming.
 
+Both commands automatically export `loss_curve.png` in the run directory after
+each completed epoch, so it is ready when training finishes or XE stops early.
+XE plots training and validation cross-entropy; SCST plots training REINFORCE
+loss (its validation metric is reward, not loss). Resumed runs include the earlier
+epochs. The plots also work on headless servers without opening a window.
+
 In an interactive terminal, Rich progress bars show completed batches, elapsed
 time, ETA, and running metrics for training and validation. XE displays token-weighted
 loss and accuracy; SCST displays image-weighted loss and sampled/baseline rewards.

@@ -9,6 +9,7 @@ description = "A reproducible CPTR-inspired image captioner with self-critical s
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
+  "matplotlib>=3.9,<4",
   "nltk>=3.9,<4",
   "numpy>=1.26,<3",
   "pillow>=10,<12",
@@ -30,7 +31,6 @@ notebook = [
   "ipykernel>=6,<8",
   "ipywidgets>=8,<9",
   "jupyterlab>=4,<5",
-  "matplotlib>=3.9,<4",
 ]
 
 [project.scripts]

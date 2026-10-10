@@ -2334,6 +2334,7 @@ name = "scst-captioner"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "matplotlib" },
     { name = "nltk" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
@@ -2358,7 +2359,6 @@ notebook = [
     { name = "ipykernel" },
     { name = "ipywidgets" },
     { name = "jupyterlab" },
-    { name = "matplotlib" },
 ]
 
 [package.metadata]
@@ -2366,7 +2366,7 @@ requires-dist = [
     { name = "ipykernel", marker = "extra == 'notebook'", specifier = ">=6,<8" },
     { name = "ipywidgets", marker = "extra == 'notebook'", specifier = ">=8,<9" },
     { name = "jupyterlab", marker = "extra == 'notebook'", specifier = ">=4,<5" },
-    { name = "matplotlib", marker = "extra == 'notebook'", specifier = ">=3.9,<4" },
+    { name = "matplotlib", specifier = ">=3.9,<4" },
     { name = "nltk", specifier = ">=3.9,<4" },
     { name = "numpy", specifier = ">=1.26,<3" },
     { name = "pillow", specifier = ">=10,<12" },
