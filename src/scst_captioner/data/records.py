@@ -29,8 +29,8 @@ class CaptionRecord:
         captions = tuple(_normalize_caption(caption) for caption in self.captions)
         if not captions:
             raise ValueError(f"Image {image_id!r} has no reference captions")
-        if len(set(captions)) != len(captions):
-            raise ValueError(f"Image {image_id!r} has duplicate reference captions")
+        # Different annotators can supply identical text. Preserve every
+        # reference, including its multiplicity, for XE and consensus metrics.
         object.__setattr__(self, "image_id", image_id)
         object.__setattr__(self, "image_path", Path(self.image_path))
         object.__setattr__(self, "captions", captions)

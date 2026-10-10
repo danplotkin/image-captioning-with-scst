@@ -159,33 +159,56 @@ Required execution semantics:
 Using eval mode does not disable autograd. The sampled token log probabilities
 remain differentiable. The baseline caption and reward do not.
 
+Under AMP, GradScaler handles nonfinite gradient entries by skipping the update
+and reducing its scale. Skipped updates do not advance the optimizer-step
+counter or XE scheduler; an entirely skipped SCST epoch does not advance its
+epoch scheduler. Nonfinite full-precision gradients still raise, as does an
+overflowing total norm when all AMP gradient entries are finite.
+
 The default baseline is greedy. A beam baseline is an expensive, separately
 named experiment; it is not required merely because beam is also evaluated.
 
 ## Reward protocol
 
 The default reward is multi-reference CIDEr-D (`scst.reward = "cider_d"`).
-Its production adapter case-folds and Treebank-tokenizes both sides, filters
-COCO punctuation, caches full-train document frequencies once, appends `<eos>`
-only to completed predictions, and records that tokenization/version. Training
-and validation checkpoint selection use the same reward implementation.
+Its production adapter first applies WordPiece-style ASCII/Unicode punctuation
+boundaries symmetrically, rejoins conventional apostrophe suffixes and single
+interword hyphens, then case-folds, Treebank-tokenizes, and filters COCO
+punctuation. The same normalization applies to predictions, reference sets and
+the training corpus used to cache document frequencies. It appends `<eos>` only
+to completed predictions and records the decoding/normalization versions.
+Training and validation checkpoint selection use the same implementation.
 Both document frequencies and their log-corpus-size denominator stay fixed to
 the training split, including singleton validation batches. The v2 adapter
 preserves COCO's clipping, Gaussian length penalty, and 10x score scaling while
 preventing its scorer from replacing the corpus size with the batch size.
-Tokenization is a symmetric Treebank approximation, not exact Java PTB
-tokenization. The exact training reward is therefore reported separately from
-the standard evaluation CIDEr score.
+Tokenization v3 makes reward tokens invariant to WordPiece's loss of punctuation
+spacing, including possessives, contractions, hyphens, abbreviations and domains.
+For example, `tri-colored` and `tri - colored` share a reward representation;
+internal periods in `D.C.` become punctuation boundaries on both sides. The
+completion marker is kept outside this normalization. This is a project-specific
+Treebank approximation, not exact Java PTB tokenization. The exact training
+reward is reported separately from standard evaluation CIDEr, whose raw
+reference text remains unchanged.
+
+All generated captions use one shared decoder with Hugging Face's implicit
+cleanup disabled and explicit spacing rules. These preserve plural possessives
+and quoted letters while joining recognized apostrophe suffixes and single
+interword hyphens.
 
 NLTK METEOR remains available as an explicitly configured alternative
 (`scst.reward = "nltk_meteor"`):
 
 ```python
 meteor_score(
-    [reference.casefold().split() for reference in references],
-    prediction.casefold().split(),
+    [normalize_reward_text(reference).casefold().split() for reference in references],
+    normalize_reward_text(prediction).casefold().split(),
 )
 ```
+
+Here `normalize_reward_text` is the shared helper from
+`scst_captioner.tokenization`. This string protocol is v2; explicitly supplied
+token sequences retain their supplied token boundaries.
 
 Use the same token/text normalization for sampled and greedy captions. Validate
 the required WordNet resource explicitly; do not download it as an import side
@@ -199,7 +222,9 @@ implementation on validation/test predictions.
 
 CIDEr-D optimization remains a different experiment from NLTK METEOR
 optimization. Begin from an XE checkpoint when changing rewards; do not resume
-an SCST checkpoint with a different reward protocol.
+an SCST checkpoint with a different reward protocol. Both resume and evaluation
+validate the recorded reward implementation, dependency version, decoding and
+normalization policy before continuing.
 
 ## Generation protocol
 

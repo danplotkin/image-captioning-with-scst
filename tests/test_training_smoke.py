@@ -45,8 +45,10 @@ class TinyTokenizer:
     all_special_ids = (0, 1, 2, 4)
 
     @staticmethod
-    def batch_decode(token_ids: torch.Tensor, *, skip_special_tokens: bool) -> list[str]:
-        del skip_special_tokens
+    def batch_decode(
+        token_ids: torch.Tensor, *, skip_special_tokens: bool, clean_up_tokenization_spaces: bool
+    ) -> list[str]:
+        del skip_special_tokens, clean_up_tokenization_spaces
         return ["word" if 3 in row.tolist() else "" for row in token_ids]
 
 

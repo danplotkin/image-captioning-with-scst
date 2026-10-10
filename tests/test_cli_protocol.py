@@ -116,6 +116,105 @@ def test_nonresumable_envelope_fails_before_training(tmp_path: Path) -> None:
         )
 
 
+def _resumable_checkpoint(tmp_path: Path, stage: str):
+    split_path = tmp_path / "split.json"
+    split_path.write_text("{}\n", encoding="utf-8")
+    config = load_config("configs/default.toml")
+    config = dataclasses.replace(
+        config, data=dataclasses.replace(config.data, split_manifest=str(split_path))
+    )
+    manifest = SimpleNamespace(records_sha256="a" * 64, images_sha256="b" * 64)
+    model = nn.Linear(2, 2)
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1)
+    scaler = torch.amp.GradScaler("cuda", enabled=False)
+    model(torch.ones(1, 2)).sum().backward()
+    optimizer.step()
+    scheduler.step()
+    provenance = {
+        "split_manifest_sha256": sha256_file(split_path),
+        "caption_records_sha256": manifest.records_sha256,
+        "image_files_sha256": manifest.images_sha256,
+    }
+    if stage == "scst":
+        provenance["reward_protocol"] = cli._reward_protocol_metadata(config)
+    checkpoint = build_checkpoint(
+        model,
+        stage=stage,
+        config=config.to_dict(),
+        epoch=3,
+        global_step=7,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        scaler=scaler,
+    )
+    checkpoint["provenance"] = provenance
+    return config, manifest, checkpoint
+
+
+@pytest.mark.parametrize("stage", ["xe", "scst"])
+def test_resume_accepts_current_protocol_and_restores_training_state(
+    tmp_path: Path, stage: str
+) -> None:
+    config, manifest, checkpoint = _resumable_checkpoint(tmp_path, stage)
+    path = tmp_path / "resume.pt"
+    save_checkpoint(checkpoint, path)
+    model = nn.Linear(2, 2)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1.0)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1)
+    scaler = torch.amp.GradScaler("cuda", enabled=False)
+    start_epoch, global_step, summary = cli._resume_if_requested(
+        str(path),
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        scaler=scaler,
+        config=config,
+        manifest=manifest,
+        expected_stage=stage,
+    )
+    assert (start_epoch, global_step) == (4, 7)
+    assert summary is not None and summary["stage"] == stage
+    assert optimizer.state
+    assert optimizer.param_groups[0]["lr"] == pytest.approx(0.001)
+    assert scheduler.last_epoch == 1
+
+
+@pytest.mark.parametrize(
+    "changed_field", ["document_frequency", "tokenization", "package_version", "missing_protocol"]
+)
+def test_scst_resume_rejects_obsolete_reward_before_restoring_training_state(
+    tmp_path: Path, changed_field: str
+) -> None:
+    config, manifest, checkpoint = _resumable_checkpoint(tmp_path, "scst")
+    if changed_field == "missing_protocol":
+        del checkpoint["provenance"]["reward_protocol"]
+    else:
+        checkpoint["provenance"]["reward_protocol"][changed_field] = "obsolete"
+    path = tmp_path / "obsolete.pt"
+    save_checkpoint(checkpoint, path)
+    model = nn.Linear(2, 2)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1.0)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1)
+    scaler = torch.amp.GradScaler("cuda", enabled=False)
+    rng_before = torch.get_rng_state().clone()
+    with pytest.raises(ValueError, match="reward implementation"):
+        cli._resume_if_requested(
+            str(path),
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            scaler=scaler,
+            config=config,
+            manifest=manifest,
+            expected_stage="scst",
+        )
+    assert not optimizer.state
+    assert optimizer.param_groups[0]["lr"] == 1.0
+    assert scheduler.last_epoch == 0
+    assert torch.equal(torch.get_rng_state(), rng_before)
+
+
 def test_prediction_payload_hash_surface_includes_completion() -> None:
     predictions = [PredictionRecord("image.jpg", "a caption")]
     objective = {"per_image": [{"image_id": "image.jpg", "score": 0.5, "completed": False}]}

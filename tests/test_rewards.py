@@ -63,6 +63,29 @@ def test_nltk_meteor_casefolds_hypothesis_and_references_symmetrically(
     assert observed == [((("a", "cat"), ("the", "cat")), ("a", "cat"))]
 
 
+def test_nltk_meteor_normalizes_string_spacing_but_keeps_explicit_token_boundaries(
+    monkeypatch,
+) -> None:
+    observed = []
+
+    def fake_meteor(image_references, prediction, **kwargs):
+        del kwargs
+        observed.append((image_references, prediction))
+        return 1.0
+
+    monkeypatch.setattr(rewards, "_load_nltk_meteor_score", lambda: fake_meteor)
+    rewards.nltk_meteor_rewards(
+        ["The tri - colored horse ' s lead.", ("horse", "'s")],
+        [["The tri-colored horse 's lead ."], [("horse", "'s")]],
+        expected_references_per_image=1,
+    )
+    expected_text_tokens = ("the", "tri-colored", "horse's", "lead", ".")
+    assert observed == [
+        ((expected_text_tokens,), expected_text_tokens),
+        ((("horse", "'s"),), ("horse", "'s")),
+    ]
+
+
 def test_nltk_meteor_retains_empty_prediction_as_zero_reward(monkeypatch) -> None:
     def should_not_run(*args, **kwargs):
         raise AssertionError("empty predictions do not need metric resources")

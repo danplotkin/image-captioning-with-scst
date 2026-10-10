@@ -117,7 +117,7 @@ def test_csv_parser_preserves_short_and_comma_captions(tmp_path: Path) -> None:
         )
 
 
-def test_csv_parser_validates_duplicate_and_reference_counts(tmp_path: Path) -> None:
+def test_csv_parser_preserves_repeated_annotations_and_validates_counts(tmp_path: Path) -> None:
     images_dir = tmp_path / "Images"
     images_dir.mkdir()
     _write_image(images_dir / "one.jpg")
@@ -126,12 +126,12 @@ def test_csv_parser_validates_duplicate_and_reference_counts(tmp_path: Path) -> 
         "image,caption\none.jpg,The same caption.\none.jpg,The same caption.\n",
         encoding="utf-8",
     )
-    with pytest.raises(ValueError, match="duplicate reference"):
-        load_flickr8k_records(
-            captions_file,
-            images_dir,
-            expected_references_per_image=2,
-        )
+    records = load_flickr8k_records(
+        captions_file,
+        images_dir,
+        expected_references_per_image=2,
+    )
+    assert records[0].captions == ("The same caption.", "The same caption.")
 
     captions_file.write_text("image,caption\none.jpg,Only one caption.\n", encoding="utf-8")
     with pytest.raises(ValueError, match="expected 2"):
@@ -140,6 +140,35 @@ def test_csv_parser_validates_duplicate_and_reference_counts(tmp_path: Path) -> 
             images_dir,
             expected_references_per_image=2,
         )
+
+
+def test_repeated_references_reach_xe_and_scst_without_deduplication(tmp_path: Path) -> None:
+    _write_image(tmp_path / "dog.jpg")
+    captions = (
+        "A dog runs.",
+        "A dog runs.",
+        "A brown dog.",
+        "A running animal.",
+        "The dog is outside.",
+    )
+    captions_file = tmp_path / "captions.txt"
+    captions_file.write_text(
+        "image,caption\n" + "".join(f"dog.jpg,{caption}\n" for caption in captions),
+        encoding="utf-8",
+    )
+    records = load_flickr8k_records(captions_file, tmp_path)
+    processor = FakeImageProcessor()
+    xe = XECaptionDataset(
+        records, tokenizer=FakeTokenizer(), image_processor=processor, max_seq_length=8
+    )
+    assert len(xe) == 5
+    assert tuple(xe[index]["caption"] for index in range(len(xe))) == captions
+    assert [xe[index]["caption_index"] for index in range(len(xe))] == list(range(5))
+    scst = SCSTImageDataset(records, image_processor=processor, expected_references_per_image=5)
+    assert len(scst) == 1
+    assert collate_image_references([scst[0]])["references"] == [list(captions)]
+    with pytest.raises(ValueError, match="Duplicate image ID"):
+        validate_records([records[0], records[0]])
 
 
 def test_xe_and_scst_datasets_have_distinct_granularity_and_transform_order(

@@ -155,7 +155,7 @@ def collect_environment(root: str | Path | None = None) -> dict[str, Any]:
         "git_dirty": dirty,
         "python": platform.python_version(),
         "platform": platform.platform(),
-        "torch": torch.__version__,
+        "torch": str(torch.__version__),
         "cuda": torch.version.cuda,
         "packages": packages,
         "accelerator": accelerator,

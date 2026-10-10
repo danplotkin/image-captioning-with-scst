@@ -10,6 +10,7 @@ import torch
 from torch import nn
 
 from scst_captioner.losses import token_cross_entropy_sum
+from scst_captioner.training.optimization import step_optimizer
 
 
 @dataclass(frozen=True)
@@ -71,17 +72,16 @@ class XETrainer:
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"Non-finite XE loss: {loss.item()}")
             self.scaler.scale(loss).backward()
-            self.scaler.unscale_(self.optimizer)
-            torch.nn.utils.clip_grad_norm_(
+            updated = step_optimizer(
+                self.optimizer,
+                self.scaler,
                 self.model.parameters(),
-                self.gradient_clip_norm,
-                error_if_nonfinite=True,
+                gradient_clip_norm=self.gradient_clip_norm,
             )
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
-            if self.scheduler is not None:
-                self.scheduler.step()
-            self.global_step += 1
+            if updated:
+                if self.scheduler is not None:
+                    self.scheduler.step()
+                self.global_step += 1
             total_loss += float(loss_sum.detach().item())
             total_correct += correct
             total_tokens += count

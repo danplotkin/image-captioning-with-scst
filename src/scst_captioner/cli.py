@@ -58,10 +58,17 @@ from scst_captioner.reproducibility import (
 )
 from scst_captioner.rewards import (
     CIDER_D_TOKENIZATION,
+    NLTK_METEOR_TOKENIZATION,
     CiderDReward,
     nltk_meteor_rewards,
 )
-from scst_captioner.tokenization import resolve_special_token_ids
+from scst_captioner.tokenization import (
+    CAPTION_TEXT_DECODING,
+    CAPTION_TEXT_NORMALIZATION,
+    REWARD_TEXT_NORMALIZATION,
+    decode_caption_batch,
+    resolve_special_token_ids,
+)
 from scst_captioner.training import SCSTTrainer, XETrainer
 
 
@@ -322,6 +329,7 @@ def _resume_if_requested(
         full_config=True,
     )
     _validate_checkpoint_data(checkpoint, config, manifest)
+    _validate_checkpoint_scientific_protocol(checkpoint, config)
     required_resume_keys = {
         "optimizer_state",
         "scheduler_state",
@@ -645,7 +653,10 @@ def _reward_protocol_metadata(config: ExperimentConfig) -> dict[str, Any]:
             "name": "nltk_meteor",
             "implementation": "nltk.translate.meteor_score.meteor_score",
             "package_version": package_version,
-            "tokenization": "whitespace_casefold_tokens_v1",
+            "tokenization": NLTK_METEOR_TOKENIZATION,
+            "caption_decoding": CAPTION_TEXT_DECODING,
+            "caption_text_normalization": CAPTION_TEXT_NORMALIZATION,
+            "reward_text_normalization": REWARD_TEXT_NORMALIZATION,
             "eos_policy": "excluded",
         }
     return {
@@ -654,6 +665,9 @@ def _reward_protocol_metadata(config: ExperimentConfig) -> dict[str, Any]:
         "document_frequency": "fixed_training_corpus_v2",
         "package_version": package_version,
         "tokenization": CIDER_D_TOKENIZATION,
+        "caption_decoding": CAPTION_TEXT_DECODING,
+        "caption_text_normalization": CAPTION_TEXT_NORMALIZATION,
+        "reward_text_normalization": REWARD_TEXT_NORMALIZATION,
         "eos_policy": "append_on_completion",
     }
 
@@ -886,7 +900,7 @@ def _generate_records(
                     )
                 else:
                     raise ValueError(f"Unknown decoding method: {decoding}")
-            captions = tokenizer.batch_decode(output.token_ids.cpu(), skip_special_tokens=True)
+            captions = decode_caption_batch(tokenizer, output.token_ids.cpu())
             for index, (image_id, caption, image_references) in enumerate(
                 zip(batch["image_ids"], captions, batch["references"], strict=True)
             ):
@@ -1237,7 +1251,7 @@ def command_caption(args: argparse.Namespace) -> int:
                     max_new_tokens=config.model.max_seq_length,
                     forbidden_token_ids=special.forbidden,
                 )
-    print(tokenizer.decode(output.token_ids[0].cpu(), skip_special_tokens=True))
+    print(decode_caption_batch(tokenizer, output.token_ids.cpu())[0])
     return 0
 
 

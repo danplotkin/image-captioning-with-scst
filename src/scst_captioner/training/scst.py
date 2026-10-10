@@ -11,7 +11,8 @@ from torch import nn
 
 from scst_captioner.generation import greedy_decode, scst_rollouts
 from scst_captioner.losses import reinforce_loss
-from scst_captioner.tokenization import resolve_special_token_ids
+from scst_captioner.tokenization import decode_caption_batch, resolve_special_token_ids
+from scst_captioner.training.optimization import step_optimizer
 
 
 class Reward(Protocol):
@@ -80,9 +81,7 @@ class SCSTTrainer:
         self.forbidden_token_ids = special_tokens.forbidden
 
     def _decode_for_reward(self, output: Any) -> list[str]:
-        decoded = list(
-            self.tokenizer.batch_decode(output.token_ids.detach().cpu(), skip_special_tokens=True)
-        )
+        decoded = decode_caption_batch(self.tokenizer, output.token_ids.detach().cpu())
         if not self.include_eos_in_reward:
             return decoded
         actions = output.action_token_ids.detach()
@@ -119,6 +118,7 @@ class SCSTTrainer:
         self.model.train()
         totals = {"loss": 0.0, "sample": 0.0, "baseline": 0.0, "advantage": 0.0}
         image_count = 0
+        updates = 0
         for batch in loader:
             pixel_values = batch.get("pixel_values")
             if not isinstance(pixel_values, torch.Tensor):
@@ -159,15 +159,15 @@ class SCSTTrainer:
             if not torch.isfinite(loss):
                 raise FloatingPointError(f"Non-finite SCST loss: {loss.item()}")
             self.scaler.scale(loss).backward()
-            self.scaler.unscale_(self.optimizer)
-            torch.nn.utils.clip_grad_norm_(
+            updated = step_optimizer(
+                self.optimizer,
+                self.scaler,
                 self.model.parameters(),
-                self.gradient_clip_norm,
-                error_if_nonfinite=True,
+                gradient_clip_norm=self.gradient_clip_norm,
             )
-            self.scaler.step(self.optimizer)
-            self.scaler.update()
-            self.global_step += 1
+            if updated:
+                self.global_step += 1
+                updates += 1
 
             totals["loss"] += float(loss.detach().item()) * batch_size
             totals["sample"] += float(sampled_reward.sum().item())
@@ -176,7 +176,8 @@ class SCSTTrainer:
             image_count += batch_size
         if image_count == 0:
             raise ValueError("SCST training loader produced no images")
-        if self.scheduler is not None:
+        # SCST decays once per epoch, provided training made an actual update.
+        if self.scheduler is not None and updates:
             self.scheduler.step()
         return SCSTEpochMetrics(
             loss=totals["loss"] / image_count,

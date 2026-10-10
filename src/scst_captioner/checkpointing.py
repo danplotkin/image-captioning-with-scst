@@ -11,6 +11,7 @@ from typing import Any
 
 import torch
 from torch import nn
+from torch.torch_version import TorchVersion
 
 from scst_captioner.reproducibility import capture_rng_state
 
@@ -82,10 +83,12 @@ def load_checkpoint_file(
 ) -> dict[str, Any]:
     """Load tensor-only legacy files or versioned checkpoints with safe unpickling."""
 
-    try:
+    # Older project checkpoints stored torch.__version__ as this str subclass.
+    # Permit that known metadata type without enabling arbitrary unpickling.
+    allowed = torch.serialization.get_safe_globals()
+    additional_types = [] if TorchVersion in allowed else [TorchVersion]
+    with torch.serialization.safe_globals(additional_types):
         loaded = torch.load(path, map_location=map_location, weights_only=True)
-    except TypeError:  # PyTorch versions before weights_only.
-        loaded = torch.load(path, map_location=map_location)
     if not isinstance(loaded, dict):
         raise TypeError("checkpoint must contain a mapping")
     return loaded

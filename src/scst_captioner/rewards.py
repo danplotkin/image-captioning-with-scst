@@ -10,11 +10,14 @@ import math
 from collections.abc import Callable, Sequence
 from typing import Any, TypeAlias
 
+from scst_captioner.tokenization import normalize_reward_text
+
 CaptionLike: TypeAlias = str | Sequence[str]
 
 NLTK_METEOR_REWARD_NAME = "nltk_meteor"
 CIDER_D_REWARD_NAME = "cider_d"
-CIDER_D_TOKENIZATION = "nltk_treebank_casefold_coco_punctuation_v2"
+CIDER_D_TOKENIZATION = "wordpiece_boundaries_nltk_treebank_casefold_coco_punctuation_v3"
+NLTK_METEOR_TOKENIZATION = "wordpiece_boundaries_whitespace_casefold_strings_v2"
 
 _COCO_PUNCTUATION = {
     "''",
@@ -140,8 +143,10 @@ def nltk_meteor_rewards(
     Every prediction is compared with *all* references for its image.  NLTK's
     multi-reference METEOR implementation selects the best reference score.
     Inputs may be whitespace-delimited strings or pre-tokenized sequences.
-    Both hypotheses and references are case-folded symmetrically before the
-    metric sees them; punctuation remains explicit in the whitespace tokens.
+    String hypotheses and references receive symmetric punctuation-boundary
+    and caption-spacing normalization before whitespace tokenization. Explicitly
+    pre-tokenized sequences keep their supplied token boundaries. Both forms
+    are case-folded symmetrically; punctuation remains in the tokens.
 
     No NLTK resource is downloaded automatically.  The default NLTK scorer
     requires the WordNet corpus when unmatched words reach synonym matching.
@@ -152,8 +157,16 @@ def nltk_meteor_rewards(
     """
 
     prepared_predictions, prepared_references = _prepare_reward_inputs(
-        predictions,
-        references,
+        [
+            normalize_reward_text(value) if isinstance(value, str) else value
+            for value in predictions
+        ],
+        [
+            [normalize_reward_text(value) if isinstance(value, str) else value for value in group]
+            if isinstance(group, Sequence) and not isinstance(group, str)
+            else group
+            for group in references
+        ],
         expected_references_per_image=expected_references_per_image,
     )
     meteor_score = _load_nltk_meteor_score()
@@ -204,7 +217,7 @@ def _normalize_cider_caption(caption: CaptionLike) -> str:
     from nltk.tokenize import TreebankWordTokenizer
 
     text = caption if isinstance(caption, str) else " ".join(caption)
-    text = text.strip().casefold()
+    text = normalize_reward_text(text).casefold()
     completed = text.endswith("<eos>")
     if completed:
         text = text[: -len("<eos>")].rstrip()
@@ -359,6 +372,7 @@ __all__ = [
     "CIDER_D_REWARD_NAME",
     "CIDER_D_TOKENIZATION",
     "NLTK_METEOR_REWARD_NAME",
+    "NLTK_METEOR_TOKENIZATION",
     "CaptionLike",
     "CiderDReward",
     "RewardDependencyError",

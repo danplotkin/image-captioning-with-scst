@@ -44,6 +44,7 @@ The detailed evidence and acceptance gates are in:
   the notebook's state-dict key layout for legacy weight loading.
 - Flickr8K splits are image-level, ordered, persisted, disjoint, validated, and
   tied to caption/source hashes. Short references are no longer silently deleted.
+  Identical captions from different annotators retain their reference slots.
 - Augmentation happens on PIL images before the pinned ViT image processor
   rescales and normalizes them.
 - Research evaluation uses one fixed test manifest and the COCO caption suite,
@@ -139,6 +140,12 @@ Both commands save `best.pt`, `last.pt`, `history.json`, `resolved_config.json`,
 and `provenance.json`. Resume from `last.pt` with `--resume`; SCST does not require
 `--xe-checkpoint` when resuming.
 
+CUDA AMP skips updates with overflowing gradients and adjusts its loss scale.
+Update counters and the XE scheduler advance only when an optimizer update
+occurs; the SCST epoch scheduler advances when the epoch contains an update.
+Nonfinite full-precision gradients and overflow of the norm of otherwise finite
+gradients remain errors.
+
 The default reward is `cider_d`: cached, symmetrically normalized CIDEr-D with
 completion-sensitive EOS handling. Both training and validation checkpoint
 selection use this reward. Set `scst.reward = "nltk_meteor"` for a METEOR run.
@@ -149,9 +156,16 @@ METEOR, ROUGE-L, and CIDEr, plus the exact configured training reward. Set
 ablation.
 
 The CIDEr-D adapter fixes both document frequencies and the IDF corpus size to
-the training split, so rewards are independent of batch size. Its v2 reward
-protocol rejects older CIDEr-D checkpoints that used a batch-dependent IDF
-denominator; start a fresh SCST run from XE for the corrected scores.
+the training split, so rewards are independent of batch size. Caption decoding
+uses explicit cleanup for conventional apostrophe suffixes and single interword
+hyphens. Reward text uses the same punctuation boundaries for predictions,
+references, and the IDF corpus, so WordPiece spacing cannot penalize an exact
+target-token sequence. This is recorded as CIDEr-D tokenization v3; optional
+NLTK METEOR string normalization is v2. Standard COCO reference text is preserved.
+
+Resume and evaluation reject SCST checkpoints with older reward/decoding
+protocols, including the earlier batch-dependent IDF denominator. Start a fresh
+SCST run from an XE checkpoint for the corrected reward protocol.
 
 ## Evaluation
 

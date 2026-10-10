@@ -87,8 +87,8 @@ lineage as `unknown`.
 
 ## Safe loading
 
-Load checkpoints on CPU by default and request tensor-safe loading where the
-installed PyTorch version supports it:
+Load checkpoints on CPU by default and request tensor-safe loading on the
+supported PyTorch versions:
 
 ```python
 torch.load(path, map_location="cpu", weights_only=True)
@@ -102,6 +102,12 @@ Then distinguish:
 
 Do not load untrusted pickle-based artifacts with arbitrary-object unpickling.
 Calculate SHA256 before conversion and after writing the converted artifact.
+
+New environment metadata stores the PyTorch version as a plain string. Older
+project envelopes stored `torch.torch_version.TorchVersion`; the loader permits
+only that known metadata class in a scoped allowlist while retaining
+`weights_only=True`. It preserves any caller-provided allowlist and does not
+fall back to arbitrary-object loading.
 
 ## New checkpoint envelope
 
@@ -165,6 +171,12 @@ real-artifact gate.
 A raw notebook state dictionary can initialize XE, initialize corrected SCST,
 or be evaluated. It cannot exactly resume training because optimizer,
 scheduler, scaler, epoch/global step, and RNG state are absent.
+
+SCST resume validates the same scientific protocol as evaluation, including
+reward implementation/dependency version, caption decoding, and reward text
+normalization. An incompatible checkpoint is rejected before optimizer,
+scheduler, scaler or RNG state is restored. Start from XE when changing the
+reward protocol, including adopting CIDEr-D tokenization v3.
 
 The historical SCST weights also embody the train-mode greedy-baseline bug.
 Loading them into an independent eval-mode model does not undo that training
