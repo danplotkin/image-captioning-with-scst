@@ -11,6 +11,7 @@ from torch import nn
 
 from scst_captioner.losses import token_cross_entropy_sum
 from scst_captioner.training.optimization import step_optimizer
+from scst_captioner.training.progress import progress_batches
 
 
 @dataclass(frozen=True)
@@ -54,7 +55,7 @@ class XETrainer:
         total_loss = 0.0
         total_correct = 0
         total_tokens = 0
-        for batch in loader:
+        for batch, report in progress_batches(loader, "XE train"):
             pixel_values = _batch_tensor(batch, "pixel_values", self.device)
             input_ids = _batch_tensor(batch, "input_ids", self.device)
             labels = _batch_tensor(batch, "labels", self.device)
@@ -85,6 +86,7 @@ class XETrainer:
             total_loss += float(loss_sum.detach().item())
             total_correct += correct
             total_tokens += count
+            report(f"loss={total_loss / total_tokens:.4f} acc={total_correct / total_tokens:.1%}")
         if total_tokens == 0:
             raise ValueError("XE training loader produced no target tokens")
         return XEEpochMetrics(
@@ -101,7 +103,7 @@ class XETrainer:
         total_correct = 0
         total_tokens = 0
         try:
-            for batch in loader:
+            for batch, report in progress_batches(loader, "XE validation"):
                 pixel_values = _batch_tensor(batch, "pixel_values", self.device)
                 input_ids = _batch_tensor(batch, "input_ids", self.device)
                 labels = _batch_tensor(batch, "labels", self.device)
@@ -112,6 +114,10 @@ class XETrainer:
                 total_loss += float(loss_sum.item())
                 total_correct += correct
                 total_tokens += count
+                if total_tokens:
+                    report(
+                        f"loss={total_loss / total_tokens:.4f} acc={total_correct / total_tokens:.1%}"
+                    )
         finally:
             self.model.train(previous_mode)
         if total_tokens == 0:

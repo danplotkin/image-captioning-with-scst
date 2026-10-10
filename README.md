@@ -204,6 +204,11 @@ Both commands save `best.pt`, `last.pt`, `history.json`, `resolved_config.json`,
 and `provenance.json`. Resume from `last.pt` with `--resume`; SCST does not require
 `--xe-checkpoint` when resuming.
 
+In an interactive terminal, Rich progress bars show completed batches, elapsed
+time, ETA, and running metrics for training and validation. XE displays token-weighted
+loss and accuracy; SCST displays image-weighted loss and sampled/baseline rewards.
+Epoch summaries remain available when output is redirected, with animated bars disabled.
+
 CUDA AMP skips updates with overflowing gradients and adjusts its loss scale.
 Update counters and the XE scheduler advance only when an optimizer update
 occurs; the SCST epoch scheduler advances when the epoch contains an update.

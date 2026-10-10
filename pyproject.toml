@@ -12,6 +12,7 @@ dependencies = [
   "nltk>=3.9,<4",
   "numpy>=1.26,<3",
   "pillow>=10,<12",
+  "rich>=13.9,<15",
   "torch>=2.4,<3",
   "torchvision>=0.19,<1",
   "tqdm>=4.66,<5",

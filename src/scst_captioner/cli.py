@@ -562,6 +562,7 @@ def command_train_xe(args: argparse.Namespace) -> int:
     best_loss = _best_metric_value(resume_checkpoint, float("inf"))
     stale_epochs = int((resume_checkpoint or {}).get("training_state", {}).get("stale_epochs", 0))
     for epoch in range(start_epoch, config.xe.epochs + 1):
+        print(f"XE epoch {epoch}/{config.xe.epochs}", flush=True)
         train_metrics = trainer.train_epoch(train_loader)
         validation_metrics = trainer.evaluate(validation_loader)
         row = {
@@ -804,6 +805,7 @@ def command_train_scst(args: argparse.Namespace) -> int:
     )
     best_reward = _best_metric_value(resume_checkpoint, -float("inf"))
     for epoch in range(start_epoch, config.scst.epochs + 1):
+        print(f"SCST epoch {epoch}/{config.scst.epochs}", flush=True)
         train_metrics = trainer.train_epoch(train_loader)
         validation_reward = trainer.evaluate(validation_loader)
         history.append(

@@ -13,6 +13,7 @@ from scst_captioner.generation import greedy_decode, scst_rollouts
 from scst_captioner.losses import reinforce_loss
 from scst_captioner.tokenization import decode_caption_batch, resolve_special_token_ids
 from scst_captioner.training.optimization import step_optimizer
+from scst_captioner.training.progress import progress_batches
 
 
 class Reward(Protocol):
@@ -119,7 +120,7 @@ class SCSTTrainer:
         totals = {"loss": 0.0, "sample": 0.0, "baseline": 0.0, "advantage": 0.0}
         image_count = 0
         updates = 0
-        for batch in loader:
+        for batch, report in progress_batches(loader, "SCST train"):
             pixel_values = batch.get("pixel_values")
             if not isinstance(pixel_values, torch.Tensor):
                 raise TypeError("batch['pixel_values'] must be a tensor")
@@ -174,6 +175,11 @@ class SCSTTrainer:
             totals["baseline"] += float(baseline_reward.sum().item())
             totals["advantage"] += float(advantage.sum().item())
             image_count += batch_size
+            report(
+                f"loss={totals['loss'] / image_count:.4f} "
+                f"sample={totals['sample'] / image_count:.3f} "
+                f"baseline={totals['baseline'] / image_count:.3f}"
+            )
         if image_count == 0:
             raise ValueError("SCST training loader produced no images")
         # SCST decays once per epoch, provided training made an actual update.
@@ -194,7 +200,7 @@ class SCSTTrainer:
         total_reward = 0.0
         image_count = 0
         try:
-            for batch in loader:
+            for batch, report in progress_batches(loader, "SCST validation"):
                 pixel_values = batch.get("pixel_values")
                 if not isinstance(pixel_values, torch.Tensor):
                     raise TypeError("batch['pixel_values'] must be a tensor")
@@ -217,6 +223,7 @@ class SCSTTrainer:
                 rewards = self._reward_tensor(predictions, self._references_for_reward(references))
                 total_reward += float(rewards.sum().item())
                 image_count += pixel_values.size(0)
+                report(f"reward={total_reward / image_count:.3f}")
         finally:
             self.model.train(previous_mode)
         if image_count == 0:
