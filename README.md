@@ -174,7 +174,9 @@ records `dataset = "flickr30k"`, annotation/caption hashes, and an image-content
 fingerprint. Reruns verify existing files and manifests without overwriting
 conflicting data. Once the required assets are present, setup works offline.
 
-Data lives under `data/flickr30k/`, with a manifest at
+Data lives under `data/flickr30k/`. KaggleHub downloads into the dedicated
+`data/flickr30k/kaggle/` directory, keeping its download destination separate
+from our annotations and generated captions. The manifest lives at
 `data/splits/flickr30k.json`. The config writes training outputs under
 `artifacts/flickr30k/xe/` and `artifacts/flickr30k/scst/`. The model settings and
 batch sizes match the default configuration. Training has about five times as

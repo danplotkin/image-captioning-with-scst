@@ -35,7 +35,7 @@ def corpus(setup_script, tmp_path, monkeypatch):
     (tmp_path / "configs").mkdir()
     (tmp_path / "configs/flickr30k.toml").write_bytes(config.read_bytes())
     directory = tmp_path / "data/flickr30k"
-    images = directory / "flickr30k_images/flickr30k_images"
+    images = directory / "kaggle/flickr30k_images/flickr30k_images"
     images.mkdir(parents=True)
     annotations = {
         "dataset": "flickr30k",
@@ -87,20 +87,38 @@ def test_setup_is_repeatable_and_loads_through_training_cli(
 def test_missing_images_trigger_pinned_kaggle_download(setup_script, corpus, monkeypatch):
     import sys
 
-    directory, _, _ = corpus
-    image = directory / "flickr30k_images/flickr30k_images/0.jpg"
-    payload = image.read_bytes()
-    image.unlink()
+    directory, source, _ = corpus
+    image_directory = directory / "kaggle/flickr30k_images/flickr30k_images"
+    payloads = {image.name: image.read_bytes() for image in image_directory.iterdir()}
+    # Reproduce a first download after the annotations/CSV have populated the
+    # dataset root: KaggleHub rejects an existing nonempty output directory.
+    for image in image_directory.iterdir():
+        image.unlink()
+    image_directory.rmdir()
+    image_directory.parent.rmdir()
+    image_directory.parent.parent.rmdir()
+    original_source = source.read_bytes()
     calls = []
 
     def download(dataset, *, output_dir):
         calls.append((dataset, output_dir))
-        image.write_bytes(payload)
+        destination = Path(output_dir)
+        if destination.exists() and any(destination.iterdir()):
+            raise FileExistsError(f"output_dir is not empty: {destination}")
+        assert (directory / "captions.csv").is_file()
+        images = destination / "flickr30k_images/flickr30k_images"
+        images.mkdir(parents=True)
+        for name, payload in payloads.items():
+            (images / name).write_bytes(payload)
+        return str(destination)
 
     monkeypatch.setitem(sys.modules, "kagglehub", SimpleNamespace(dataset_download=download))
     setup_script.main()
-    assert calls == [(setup_script.DATASET, "data/flickr30k")]
+    assert calls == [(setup_script.DATASET, "data/flickr30k/kaggle")]
+    assert source.read_bytes() == original_source
     assert load_manifest("data/splits/flickr30k.json").train == ("0.jpg",)
+    setup_script.main()
+    assert len(calls) == 1
 
 
 def test_annotations_verified_before_writing(setup_script, tmp_path, monkeypatch):
@@ -161,7 +179,7 @@ def test_missing_image_fails_validation(setup_script, corpus):
     directory, source, _ = corpus
     captions = directory / "captions.csv"
     setup_script.prepare_captions(source, captions)
-    images = directory / "flickr30k_images/flickr30k_images"
+    images = directory / "kaggle/flickr30k_images/flickr30k_images"
     (images / "0.jpg").unlink()
     with pytest.raises(FileNotFoundError, match="missing"):
         load_flickr8k_records(captions, images)

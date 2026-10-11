@@ -110,7 +110,10 @@ def main() -> None:
                 "Run: uv run --with kagglehub python scripts/setup_flickr30k.py"
             ) from error
         print(f"Downloading {DATASET}...", flush=True)
-        kagglehub.dataset_download(DATASET, output_dir=str(captions.parent))
+        # KaggleHub owns this directory and requires it to be empty on the
+        # first download. Keep our annotations and generated CSV outside it.
+        download_directory = captions.parent / "kaggle"
+        kagglehub.dataset_download(DATASET, output_dir=str(download_directory))
 
     print("Validating images, all five references, and split assignments...", flush=True)
     records = load_flickr8k_records(

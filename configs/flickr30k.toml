@@ -13,17 +13,17 @@ activation = "relu"
 freeze_encoder = true
 
 [data]
-images_dir = "data/flickr30k/flickr30k_images/flickr30k_images"
+images_dir = "data/flickr30k/kaggle/flickr30k_images/flickr30k_images"
 captions_file = "data/flickr30k/captions.csv"
 split_manifest = "data/splits/flickr30k.json"
 min_caption_words = 1
 expected_references_per_image = 5
 num_workers = 2
-horizontal_flip_probability = 0.4
+horizontal_flip_probability = 0.0
 rotation_degrees = 10.0
 color_jitter_probability = 0.3
 brightness = 0.3
-hue = 0.1
+hue = 0.0
 
 [xe]
 epochs = 15
@@ -32,10 +32,10 @@ learning_rate = 0.0001
 weight_decay = 0.01
 warmup_ratio = 0.1
 gradient_clip_norm = 1.0
-patience = 2
+patience = 3
 
 [scst]
-epochs = 20
+epochs = 15
 batch_size = 12
 learning_rate = 0.00005
 lr_decay = 0.85
