@@ -126,6 +126,15 @@ def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
     monkeypatch.setattr(cli, "_load_hf_components", lambda _: (tokenizer, processor))
     monkeypatch.setattr(cli, "build_model", tiny_model)
     monkeypatch.setattr(cli, "save_checkpoint", save_epoch_snapshot)
+    validation_scores = []
+    original_evaluate = cli.SCSTTrainer.evaluate
+
+    def record_validation(trainer, loader):
+        score = original_evaluate(trainer, loader)
+        validation_scores.append(score)
+        return score
+
+    monkeypatch.setattr(cli.SCSTTrainer, "evaluate", record_validation)
     # Actual corpus loading, preprocessing, model/trainer, reward, provenance,
     # checkpoint serialization and resume execute without metadata workarounds.
     assert (
@@ -156,6 +165,15 @@ def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
         )
         assert command(args) == 0
         uninterrupted = load_checkpoint_file(directory / "last.pt")
+        if stage == "scst":
+            assert len(validation_scores) == 3  # XE once, then each trained epoch.
+            xe_score = validation_scores[0]
+            assert uninterrupted["training_state"]["xe_validation_reward"] == xe_score
+            for row in uninterrupted["training_state"]["history"]:
+                assert row["xe_validation_reward"] == xe_score
+                assert row["delta_vs_xe"] == row["validation_reward"] - xe_score
+            with Image.open(directory / "reward_curve.png") as curve:
+                curve.verify()
         assert uninterrupted["progress"]["global_step"] > 0
         assert type(uninterrupted["provenance"]["environment"]["torch"]) is str
         assert (directory / "best.pt").is_file()
@@ -167,6 +185,11 @@ def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
         args.output_dir = str(tmp_path / f"{stage}-resumed")
         assert command(args) == 0
         resumed = load_checkpoint_file(Path(args.output_dir) / "last.pt")
+        if stage == "scst":
+            assert len(validation_scores) == 4  # Resume evaluates only the new epoch.
+            assert resumed["training_state"]["xe_validation_reward"] == xe_score
+            with Image.open(Path(args.output_dir) / "reward_curve.png") as curve:
+                curve.verify()
         with Image.open(Path(args.output_dir) / "loss_curve.png") as curve:
             curve.verify()
         assert resumed["progress"] == uninterrupted["progress"]

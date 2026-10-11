@@ -252,6 +252,16 @@ XE plots training and validation cross-entropy; SCST plots training REINFORCE
 loss (its validation metric is reward, not loss). Resumed runs include the earlier
 epochs. The plots also work on headless servers without opening a window.
 
+Before a fresh SCST run, the loaded XE policy is evaluated once on the validation
+set using greedy decoding and the configured training reward. This fixed score
+is saved in `xe_validation.json` and in each checkpoint. Epoch summaries and
+`history.json` report the current validation reward and its change from XE;
+summaries also report the best change so far. `reward_curve.png` plots validation
+reward against a horizontal XE reference line. Resuming preserves the original
+XE score without another baseline evaluation. Older checkpoints without that
+score still resume, but the XE comparison is marked unavailable. Best SCST
+checkpoint selection continues to use validation reward, even if no epoch beats XE.
+
 In an interactive terminal, Rich progress bars show completed batches, elapsed
 time, ETA, and running metrics for training and validation. XE displays token-weighted
 loss and accuracy; SCST displays image-weighted loss and sampled/baseline rewards.

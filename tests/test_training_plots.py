@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from matplotlib.figure import Figure
 
-from scst_captioner.training.plots import export_loss_curve
+from scst_captioner.training.plots import export_loss_curve, export_reward_curve
 
 
 @pytest.mark.parametrize("stage", ["xe", "scst"])
@@ -38,3 +38,27 @@ def test_loss_curve_uses_recorded_epochs_and_losses(tmp_path, monkeypatch, stage
 
     monkeypatch.setattr(Figure, "savefig", check_plot)
     export_loss_curve(history, Path(tmp_path), stage=stage)
+
+
+@pytest.mark.parametrize("xe_score", [1.2, None])
+def test_reward_curve_compares_validation_with_fixed_xe_score(tmp_path, monkeypatch, xe_score):
+    def check_plot(figure, path, **kwargs):
+        assert path == tmp_path / "reward_curve.png"
+        axes = figure.axes[0]
+        lines = axes.get_lines()
+        assert axes.get_ylabel() == "cider_d"
+        assert list(lines[0].get_xdata()) == [1, 2]
+        assert list(lines[0].get_ydata()) == [1.1, 1.4]
+        if xe_score is None:
+            assert len(lines) == 1
+        else:
+            assert len(lines) == 2
+            assert list(lines[1].get_ydata()) == [xe_score, xe_score]
+
+    monkeypatch.setattr(Figure, "savefig", check_plot)
+    export_reward_curve(
+        [{"epoch": 1, "validation_reward": 1.1}, {"epoch": 2, "validation_reward": 1.4}],
+        tmp_path,
+        reward_name="cider_d",
+        xe_validation_reward=xe_score,
+    )

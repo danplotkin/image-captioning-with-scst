@@ -70,7 +70,7 @@ from scst_captioner.tokenization import (
     resolve_special_token_ids,
 )
 from scst_captioner.training import SCSTTrainer, XETrainer
-from scst_captioner.training.plots import export_loss_curve
+from scst_captioner.training.plots import export_loss_curve, export_reward_curve
 
 
 def _load_corpus(config: ExperimentConfig) -> tuple[Any, Any]:
@@ -806,6 +806,19 @@ def command_train_scst(args: argparse.Namespace) -> int:
         if args.resume
         else []
     )
+    if resume_checkpoint is None:
+        print("Evaluating pre-SCST XE policy on validation (greedy)", flush=True)
+        xe_validation_reward = trainer.evaluate(validation_loader)
+    else:
+        xe_validation_reward = resume_checkpoint.get("training_state", {}).get("xe_validation_reward")
+    write_json(
+        run_dir / "xe_validation.json",
+        {"reward": config.scst.reward, "decoder": "greedy", "value": xe_validation_reward},
+    )
+    if xe_validation_reward is None:
+        print("XE validation comparison unavailable: resume checkpoint has no saved XE score.")
+    else:
+        print(f"XE validation {config.scst.reward}={xe_validation_reward:.4f}", flush=True)
     best_reward = _best_metric_value(resume_checkpoint, -float("inf"))
     for epoch in range(start_epoch, config.scst.epochs + 1):
         print(f"SCST epoch {epoch}/{config.scst.epochs}", flush=True)
@@ -816,6 +829,12 @@ def command_train_scst(args: argparse.Namespace) -> int:
                 "epoch": epoch,
                 "train": dataclasses.asdict(train_metrics),
                 "validation_reward": validation_reward,
+                "xe_validation_reward": xe_validation_reward,
+                "delta_vs_xe": (
+                    validation_reward - xe_validation_reward
+                    if xe_validation_reward is not None
+                    else None
+                ),
             }
         )
         improved = validation_reward > best_reward
@@ -838,6 +857,7 @@ def command_train_scst(args: argparse.Namespace) -> int:
             provenance=provenance,
             training_state={
                 "history": history,
+                "xe_validation_reward": xe_validation_reward,
                 "data_loader_generator_state": (
                     train_loader.generator.get_state()
                     if train_loader.generator is not None
@@ -850,10 +870,22 @@ def command_train_scst(args: argparse.Namespace) -> int:
             save_checkpoint(checkpoint, run_dir / "best.pt")
         write_json(run_dir / "history.json", history)
         export_loss_curve(history, run_dir, stage="scst")
+        export_reward_curve(
+            history,
+            run_dir,
+            reward_name=config.scst.reward,
+            xe_validation_reward=xe_validation_reward,
+        )
+        comparison = (
+            f", xe={xe_validation_reward:.4f}, delta_vs_xe={validation_reward - xe_validation_reward:+.4f}, "
+            f"best_delta_vs_xe={best_reward - xe_validation_reward:+.4f}"
+            if xe_validation_reward is not None
+            else ""
+        )
         print(
             f"SCST epoch {epoch}: loss={train_metrics.loss:.4f}, "
             f"sample={train_metrics.sampled_reward:.4f}, baseline={train_metrics.baseline_reward:.4f}, "
-            f"validation={validation_reward:.4f}"
+            f"validation_{config.scst.reward}={validation_reward:.4f}{comparison}"
         )
     return 0
 
