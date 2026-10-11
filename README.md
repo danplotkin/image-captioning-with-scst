@@ -145,6 +145,48 @@ also supports `uv run scst-captioner prepare-data`. Without official split-file
 arguments it creates a deterministic 80/10/10 image-level split with seed 42.
 The conventional setup script rejects such a manifest instead of overwriting it.
 
+### Flickr30k
+
+The same model, XE trainer, SCST trainer, and evaluator support Flickr30k.
+Use the dedicated setup script and configuration:
+
+```bash
+uv run --with kagglehub python scripts/setup_flickr30k.py
+uv run scst-captioner validate-data --config configs/flickr30k.toml
+uv run scst-captioner train-xe --config configs/flickr30k.toml
+uv run scst-captioner train-scst --config configs/flickr30k.toml \
+  --xe-checkpoint artifacts/flickr30k/xe/best.pt
+```
+
+Setup downloads the pinned [Flickr30k image mirror, version 1](https://www.kaggle.com/datasets/hsankesara/flickr-image-dataset)
+through KaggleHub and the [Karpathy annotation archive](https://cs.stanford.edu/people/karpathy/deepimagesent/).
+Allow several GB for the images plus download/extraction space. If Kaggle requires
+authentication in your environment, authenticate with KaggleHub and rerun.
+Captions and split assignments come from the same SHA256-verified annotation
+JSON; the mirror's caption file is not used. Setup converts the five raw
+references per image to the CSV format consumed by the existing loader, retaining
+punctuation, case, and duplicate references.
+
+The original Karpathy annotation release contains **29,000 training, 1,014
+validation, and 1,000 test images** (31,014 total). Additional images in the
+image mirror are unused. All references for each image stay together. The manifest
+records `dataset = "flickr30k"`, annotation/caption hashes, and an image-content
+fingerprint. Reruns verify existing files and manifests without overwriting
+conflicting data. Once the required assets are present, setup works offline.
+
+Data lives under `data/flickr30k/`, with a manifest at
+`data/splits/flickr30k.json`. The config writes training outputs under
+`artifacts/flickr30k/xe/` and `artifacts/flickr30k/scst/`. The model settings and
+batch sizes match the default configuration. Training has about five times as
+many examples per epoch as Flickr8K; batch memory requirements remain similar.
+Start a fresh XE run for this dataset, then initialize SCST from its best XE
+checkpoint. Existing Flickr8K checkpoints cannot exactly resume a Flickr30k run
+because checkpoints validate dataset identity.
+
+The playground also uses Flickr30k when `CONFIG_PATH` is set to
+`"configs/flickr30k.toml"`. Use the setup script to recreate the benchmark split;
+`prepare-data` without split files creates a custom random partition.
+
 ## Visual training playground
 
 Open [`playground.ipynb`](notebooks/playground.ipynb) to inspect real Flickr8K images through
