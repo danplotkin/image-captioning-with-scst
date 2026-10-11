@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
 from typing import Any
 
 import torch
 from torch import nn
-from torch.nn import functional as F
 
 from scst_captioner.config import ModelConfig
+from scst_captioner.decoder import CaptionDecoder, DecodeCache
 
 
 class VisionBackbone(nn.Module):
@@ -95,40 +94,6 @@ class PositionalEmbedding(nn.Module):
         return self.positional_encoding(self.embedding(token_ids), offset=offset)
 
 
-@dataclass(frozen=True)
-class LayerKVCache:
-    memory_key: torch.Tensor
-    memory_value: torch.Tensor
-    self_key: torch.Tensor | None = None
-    self_value: torch.Tensor | None = None
-
-
-@dataclass(frozen=True)
-class DecodeCache:
-    """Per-rollout tensors; never stored in the model or detached from autograd."""
-
-    layers: tuple[LayerKVCache, ...]
-    padding_mask: torch.Tensor
-    position: int = 0
-
-
-def _heads(value: torch.Tensor, attention: nn.MultiheadAttention) -> torch.Tensor:
-    return value.reshape(value.size(0), value.size(1), attention.num_heads, -1).transpose(1, 2)
-
-
-def _attend(
-    attention: nn.MultiheadAttention,
-    query: torch.Tensor,
-    key: torch.Tensor,
-    value: torch.Tensor,
-    allowed: torch.Tensor | None = None,
-) -> torch.Tensor:
-    # The single query is the last prefix position: every cached key is causal.
-    output = F.scaled_dot_product_attention(query, key, value, attn_mask=allowed)
-    output = output.transpose(1, 2).reshape(query.size(0), 1, attention.embed_dim)
-    return attention.out_proj(output)
-
-
 class CPTRCaptioner(nn.Module):
     """A CPTR-inspired ViT encoder plus autoregressive Transformer decoder.
 
@@ -170,42 +135,23 @@ class CPTRCaptioner(nn.Module):
             pad_token_id,
             config.dropout,
         )
-        decoder_layer = nn.TransformerDecoderLayer(
-            d_model=config.d_model,
-            nhead=config.num_heads,
-            dim_feedforward=config.feedforward_dim,
-            dropout=config.dropout,
-            activation=config.activation,
-            batch_first=True,
-        )
-        self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=config.num_decoder_layers)
-        self.memory_projection: nn.Module
-        if encoder_hidden_size == config.d_model:
-            self.memory_projection = nn.Identity()
-        else:
-            self.memory_projection = nn.Linear(encoder_hidden_size, config.d_model)
+        self.decoder = CaptionDecoder(config, encoder_hidden_size)
         self.fc = nn.Linear(config.d_model, vocab_size)
 
     @property
     def encoder_is_frozen(self) -> bool:
-        return not any(
-            parameter.requires_grad
-            for module in (self.backbone, self.memory_projection)
-            for parameter in module.parameters()
-        )
+        return not any(parameter.requires_grad for parameter in self.backbone.parameters())
 
     def encode_images(self, pixel_values: torch.Tensor) -> torch.Tensor:
-        return self.memory_projection(self.backbone(pixel_values))
+        return self.backbone(pixel_values)
 
     def decode(self, token_ids: torch.Tensor, memory: torch.Tensor) -> torch.Tensor:
         target = self.positional_embedding(token_ids)
-        output = self.decoder(
-            target,
-            memory,
-            tgt_mask=self.compute_causal_mask(token_ids),
-            tgt_key_padding_mask=self.compute_padding_mask(token_ids),
-            tgt_is_causal=True,
+        allowed = ~(
+            self.compute_causal_mask(token_ids)[None, None, :, :]
+            | self.compute_padding_mask(token_ids)[:, None, None, :]
         )
+        output, _ = self.decoder(target, memory, allowed)
         return self.fc(output)
 
     def forward(self, pixel_values: torch.Tensor, input_ids: torch.Tensor) -> torch.Tensor:
@@ -218,16 +164,9 @@ class CPTRCaptioner(nn.Module):
         """Project image K/V once per layer, retaining gradients for SCST."""
         if self.training:
             raise ValueError("KV caching requires eval mode; train-mode dropout uses full prefixes")
-        layers = []
-        for layer in self.decoder.layers:
-            attention = layer.multihead_attn
-            width = attention.embed_dim
-            key, value = F.linear(
-                memory, attention.in_proj_weight[width:], attention.in_proj_bias[width:]
-            ).chunk(2, dim=-1)
-            layers.append(LayerKVCache(_heads(key, attention), _heads(value, attention)))
+        layers = tuple(layer.init_cache(memory) for layer in self.decoder.layers)
         padding = torch.empty(memory.size(0), 0, dtype=torch.bool, device=memory.device)
-        return DecodeCache(tuple(layers), padding)
+        return DecodeCache(layers, padding)
 
     def decode_step(
         self, token_ids: torch.Tensor, cache: DecodeCache
@@ -243,47 +182,9 @@ class CPTRCaptioner(nn.Module):
             raise ValueError("decode_step expects [batch, 1] tokens")
         padding = torch.cat((cache.padding_mask, self.compute_padding_mask(token_ids)), dim=1)
         target = self.positional_embedding(token_ids, offset=cache.position)
-        layers = []
-        for layer, previous in zip(self.decoder.layers, cache.layers, strict=True):
-            residual = target
-            source = layer.norm1(target) if layer.norm_first else target
-            attention = layer.self_attn
-            query, key, value = F.linear(
-                source, attention.in_proj_weight, attention.in_proj_bias
-            ).chunk(3, dim=-1)
-            query, key, value = (_heads(item, attention) for item in (query, key, value))
-            if previous.self_key is not None:
-                key = torch.cat((previous.self_key, key), dim=2)
-                value = torch.cat((previous.self_value, value), dim=2)
-            target = residual + layer.dropout1(
-                _attend(attention, query, key, value, ~padding[:, None, None, :])
-            )
-            if not layer.norm_first:
-                target = layer.norm1(target)
-            residual = target
-            source = layer.norm2(target) if layer.norm_first else target
-            attention = layer.multihead_attn
-            width = attention.embed_dim
-            query = _heads(
-                F.linear(source, attention.in_proj_weight[:width], attention.in_proj_bias[:width]),
-                attention,
-            )
-            target = residual + layer.dropout2(
-                _attend(attention, query, previous.memory_key, previous.memory_value)
-            )
-            if not layer.norm_first:
-                target = layer.norm2(target)
-            residual = target
-            source = layer.norm3(target) if layer.norm_first else target
-            target = residual + layer.dropout3(
-                layer.linear2(layer.dropout(layer.activation(layer.linear1(source))))
-            )
-            if not layer.norm_first:
-                target = layer.norm3(target)
-            layers.append(LayerKVCache(previous.memory_key, previous.memory_value, key, value))
-        if self.decoder.norm is not None:
-            target = self.decoder.norm(target)
-        return self.fc(target[:, 0]), DecodeCache(tuple(layers), padding, cache.position + 1)
+        # The newest query may attend to every non-padding cached position.
+        output, layers = self.decoder(target, None, ~padding[:, None, None, :], cache.layers)
+        return self.fc(output[:, 0]), DecodeCache(layers, padding, cache.position + 1)
 
     def compute_padding_mask(self, token_ids: torch.Tensor) -> torch.Tensor:
         return token_ids.eq(self.pad_token_id)

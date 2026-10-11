@@ -280,7 +280,15 @@ uv run scst-captioner caption path/to/image.jpg \
 Greedy decoding and eval-mode SCST sampling use a per-rollout KV cache by default.
 Each decoder layer reuses caption attention keys/values and projected image
 keys/values. The sampled cache retains autograd history for the policy gradient.
-The existing checkpoint weights and teacher-forced XE path are unchanged.
+The default 768-wide encoder/decoder retains its existing checkpoint layout.
+
+Full-sequence training and cached decoding share the same `CaptionDecoderLayer`
+implementation in `src/scst_captioner/decoder.py`, built from PyTorch attention,
+normalization, and linear modules.
+
+Image memory is the raw encoder output. Each cross-attention layer sets its
+`kdim` and `vdim` to the encoder width and projects image keys/values directly
+into the decoder width, without a separate memory-projection layer.
 
 Set `use_kv_cache = false` under `[runtime]` in your TOML config to compare with
 full-prefix decoding. Direct `greedy_decode`, `sample_decode`, and `scst_rollouts`

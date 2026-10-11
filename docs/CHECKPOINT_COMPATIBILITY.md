@@ -54,9 +54,18 @@ fc.bias
 ```
 
 Moving the decoder and ViT construction inside the model changes ownership but
-does not require renaming those keys. With encoder width equal to decoder width,
-an identity memory projection has no parameters and therefore introduces no
-new state keys.
+does not require renaming those keys. The custom caption decoder keeps the same
+attention, feed-forward, and normalization module names and parameter layouts.
+With encoder width equal to decoder width, cross-attention retains the legacy
+combined `in_proj_weight` and `in_proj_bias` layout. Image features feed
+cross-attention directly.
+
+When encoder and decoder widths differ, cross-attention sets `kdim` and `vdim`
+to the encoder width and uses separate `q_proj_weight`, `k_proj_weight`, and
+`v_proj_weight` tensors in each layer. There is no standalone `memory_projection`.
+Older unequal-width checkpoints containing `memory_projection.*` use a different
+parameter layout and require an explicit conversion before loading. The default
+768-wide encoder/decoder checkpoints are unaffected.
 
 Strict load is the default. Missing or unexpected keys and shape mismatches are
 errors, not warnings to suppress. Prefix rewriting such as removing

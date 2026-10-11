@@ -9,21 +9,24 @@ from scst_captioner.losses import reinforce_loss
 from scst_captioner.model import CPTRCaptioner
 
 
-def make_model():
+def make_model(encoder_hidden_size=4):
     torch.manual_seed(19)
     return CPTRCaptioner(
         replace(tiny_config(), num_decoder_layers=2),
         vocab_size=9,
         pad_token_id=0,
-        backbone=TinyBackbone(),
+        backbone=TinyBackbone(hidden_size=encoder_hidden_size),
     ).eval()
 
 
 @pytest.mark.parametrize("batch_size", [1, 3])
-def test_cached_prefix_logits_and_gradients(batch_size):
-    model = make_model()
-    tokens = torch.tensor([[1, 4, 0, 5, 2, 2]]).expand(batch_size, -1)
-    memory = torch.randn(batch_size, 4, 4, requires_grad=True)
+@pytest.mark.parametrize("encoder_hidden_size", [3, 4, 7])
+def test_cached_prefix_logits_and_gradients(batch_size, encoder_hidden_size):
+    model = make_model(encoder_hidden_size)
+    tokens = torch.tensor(
+        [[1, 4, 0, 5, 2, 2], [1, 6, 7, 0, 0, 2], [1, 0, 4, 8, 5, 2]]
+    )[:batch_size]
+    memory = torch.randn(batch_size, 4, encoder_hidden_size, requires_grad=True)
     results = []
     for cached in (False, True):
         model.zero_grad(set_to_none=True)
@@ -61,9 +64,10 @@ def test_cached_prefix_logits_and_gradients(batch_size):
 
 
 @pytest.mark.parametrize("decode", [greedy_decode, sample_decode])
-def test_generation_cache_equivalence(decode):
-    model = make_model()
-    memory = torch.randn(3, 4, 4)
+@pytest.mark.parametrize("encoder_hidden_size", [3, 4, 7])
+def test_generation_cache_equivalence(decode, encoder_hidden_size):
+    model = make_model(encoder_hidden_size)
+    memory = torch.randn(3, 4, encoder_hidden_size)
     outputs = []
     for cached in (False, True):
         torch.manual_seed(41)
@@ -86,9 +90,14 @@ def test_generation_cache_equivalence(decode):
 
 
 @pytest.mark.parametrize("mode", ["eval", "train"])
-def test_rollouts_cache_preserves_encoder_gradients_and_modes(mode):
+@pytest.mark.parametrize("freeze_encoder", [False, True])
+def test_rollouts_cache_preserves_encoder_gradients_and_modes(mode, freeze_encoder):
+    torch.manual_seed(19)
     model = CPTRCaptioner(
-        tiny_config(), vocab_size=9, pad_token_id=0, backbone=MismatchedBackbone()
+        tiny_config(freeze_encoder=freeze_encoder),
+        vocab_size=9,
+        pad_token_id=0,
+        backbone=MismatchedBackbone(),
     ).train()
     outputs = scst_rollouts(
         model,
@@ -102,8 +111,18 @@ def test_rollouts_cache_preserves_encoder_gradients_and_modes(mode):
     assert model.training
     assert outputs.baseline.action_log_probs is None
     outputs.sampled.action_log_probs.sum().backward()
-    assert model.memory_projection.weight.grad is not None
-    assert torch.isfinite(model.memory_projection.weight.grad).all()
+    attention = model.decoder.layers[0].multihead_attn
+    for weight in (attention.q_proj_weight, attention.k_proj_weight, attention.v_proj_weight):
+        assert weight.grad is not None
+        assert torch.isfinite(weight.grad).all()
+        assert weight.grad.count_nonzero() > 0
+    encoder_grad = model.backbone.backbone.projection.weight.grad
+    if freeze_encoder:
+        assert encoder_grad is None
+    else:
+        assert encoder_grad is not None
+        assert torch.isfinite(encoder_grad).all()
+        assert encoder_grad.count_nonzero() > 0
 
 
 def test_train_mode_falls_back_and_cache_has_no_state_dict_keys():
@@ -134,9 +153,10 @@ def test_train_mode_falls_back_and_cache_has_no_state_dict_keys():
     )
 
 
-def test_cached_autocast_logits_and_backward_are_finite():
-    model = make_model()
-    memory = torch.randn(2, 4, 4)
+@pytest.mark.parametrize("encoder_hidden_size", [3, 4, 7])
+def test_cached_autocast_logits_and_backward_are_finite(encoder_hidden_size):
+    model = make_model(encoder_hidden_size)
+    memory = torch.randn(2, 4, encoder_hidden_size)
     tokens = torch.tensor([[1, 4, 5], [1, 3, 2]])
     with torch.autocast("cpu", dtype=torch.float16):
         cache = model.init_decode_cache(memory)

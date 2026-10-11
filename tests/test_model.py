@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 import torch
 from torch import nn
 
@@ -8,10 +9,10 @@ from scst_captioner.model import CPTRCaptioner
 
 
 class TinyBackbone(nn.Module):
-    def __init__(self) -> None:
+    def __init__(self, hidden_size: int = 4) -> None:
         super().__init__()
-        self.config = SimpleNamespace(hidden_size=4)
-        self.projection = nn.Linear(3, 4)
+        self.config = SimpleNamespace(hidden_size=hidden_size)
+        self.projection = nn.Linear(3, hidden_size)
         self.dropout = nn.Dropout(0.9)
 
     def forward(self, pixels: torch.Tensor) -> SimpleNamespace:
@@ -21,9 +22,7 @@ class TinyBackbone(nn.Module):
 
 class MismatchedBackbone(TinyBackbone):
     def __init__(self) -> None:
-        super().__init__()
-        self.config = SimpleNamespace(hidden_size=3)
-        self.projection = nn.Identity()
+        super().__init__(hidden_size=3)
 
 
 def tiny_config(*, freeze_encoder: bool = True) -> ModelConfig:
@@ -65,14 +64,38 @@ def test_frozen_encoder_stays_in_eval_when_captioner_trains() -> None:
     assert not model.backbone.backbone.training
 
 
-def test_trainable_memory_projection_keeps_scst_encoder_path_differentiable() -> None:
+@pytest.mark.parametrize("encoder_hidden_size", [3, 4, 7])
+@pytest.mark.parametrize("freeze_encoder", [False, True])
+def test_cross_attention_consumes_raw_encoder_features(
+    encoder_hidden_size: int, freeze_encoder: bool
+) -> None:
+    torch.manual_seed(23)
     model = CPTRCaptioner(
-        tiny_config(freeze_encoder=True),
+        tiny_config(freeze_encoder=freeze_encoder),
         vocab_size=9,
         pad_token_id=0,
-        backbone=MismatchedBackbone(),
-    )
-    assert model.encoder_is_frozen is False
+        backbone=TinyBackbone(hidden_size=encoder_hidden_size),
+    ).eval()
+    pixels = torch.randn(2, 3, 2, 2)
+    memory = model.encode_images(pixels)
+    assert memory.shape == (2, 4, encoder_hidden_size)
+    torch.testing.assert_close(memory, model.backbone(pixels))
+    assert not hasattr(model, "memory_projection")
+    assert model.encoder_is_frozen is freeze_encoder
+
+    logits = model.decode(torch.tensor([[1, 3, 0], [1, 4, 5]]), memory)
+    assert logits.shape == (2, 3, 9)
+    nn.functional.cross_entropy(logits[:, -1], torch.tensor([2, 6])).backward()
+    for parameter in model.decoder.layers[0].multihead_attn.parameters():
+        assert parameter.grad is not None
+        assert torch.isfinite(parameter.grad).all()
+    encoder_grad = model.backbone.backbone.projection.weight.grad
+    if freeze_encoder:
+        assert encoder_grad is None
+    else:
+        assert encoder_grad is not None
+        assert torch.isfinite(encoder_grad).all()
+        assert encoder_grad.count_nonzero() > 0
 
 
 def test_teacher_forcing_shapes_and_legacy_key_paths() -> None:
