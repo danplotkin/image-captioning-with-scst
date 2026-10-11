@@ -275,6 +275,32 @@ uv run scst-captioner caption path/to/image.jpg \
   --decoding beam
 ```
 
+## Autoregressive KV cache
+
+Greedy decoding and eval-mode SCST sampling use a per-rollout KV cache by default.
+Each decoder layer reuses caption attention keys/values and projected image
+keys/values. The sampled cache retains autograd history for the policy gradient.
+The existing checkpoint weights and teacher-forced XE path are unchanged.
+
+Set `use_kv_cache = false` under `[runtime]` in your TOML config to compare with
+full-prefix decoding. Direct `greedy_decode`, `sample_decode`, and `scst_rollouts`
+calls accept the same keyword. Train-mode sampling automatically uses full
+prefixes to preserve its dropout behavior; beam search currently remains uncached.
+Small floating-point differences can occasionally change token choices.
+
+To verify a saved XE model using local pretrained assets and validation images:
+
+```bash
+uv run python scripts/verify_kv_cache.py --checkpoint artifacts/xe/best.pt
+```
+
+This strictly loads the saved weights, checks greedy token/mask equality, compares
+seeded samples, and checks fixed-sample SCST logits, loss, image-memory gradients,
+and every participating parameter gradient. It also times CPU greedy decoding
+(excluding image encoding) and writes `artifacts/kv_cache_verification.json`.
+The default check uses 16 validation images; it is not a full validation metric
+run or a CUDA memory/performance benchmark.
+
 ## Legacy checkpoints
 
 The model preserves the notebook parameter paths, including

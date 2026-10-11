@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Any, Protocol, cast
 
 import torch
 from torch.distributions import Categorical
@@ -21,6 +21,14 @@ class AutoregressiveCaptioner(Protocol):
     def encode_images(self, pixel_values: torch.Tensor) -> torch.Tensor: ...
 
     def predict_next_token(self, token_ids: torch.Tensor, memory: torch.Tensor) -> torch.Tensor: ...
+
+
+class CachedAutoregressiveCaptioner(AutoregressiveCaptioner, Protocol):
+    """Optional incremental interface; older captioners use full prefixes."""
+
+    def init_decode_cache(self, memory: torch.Tensor) -> Any: ...
+
+    def decode_step(self, token_ids: torch.Tensor, cache: Any) -> tuple[torch.Tensor, Any]: ...
 
 
 @dataclass(frozen=True)
@@ -89,6 +97,22 @@ def _initial_state(memory: torch.Tensor, bos_token_id: int) -> tuple[torch.Tenso
     return tokens, finished
 
 
+def _decode_cache(model: AutoregressiveCaptioner, memory: torch.Tensor, enabled: bool) -> Any:
+    # Full-prefix train-mode dropout redraws old states each step. Preserve that
+    # policy by using the original path whenever the model is in train mode.
+    if enabled and not model.training and hasattr(model, "init_decode_cache"):
+        return cast(CachedAutoregressiveCaptioner, model).init_decode_cache(memory)
+    return None
+
+
+def _next_logits(
+    model: AutoregressiveCaptioner, tokens: torch.Tensor, memory: torch.Tensor, cache: Any
+) -> tuple[torch.Tensor, Any]:
+    if cache is None:
+        return model.predict_next_token(tokens, memory), None
+    return cast(CachedAutoregressiveCaptioner, model).decode_step(tokens[:, -1:], cache)
+
+
 def greedy_decode(
     model: AutoregressiveCaptioner,
     memory: torch.Tensor,
@@ -97,15 +121,18 @@ def greedy_decode(
     eos_token_id: int,
     max_new_tokens: int,
     forbidden_token_ids: Sequence[int] = (),
+    use_kv_cache: bool = True,
 ) -> GenerationOutput:
     if max_new_tokens < 1:
         raise ValueError("max_new_tokens must be positive")
     tokens, finished = _initial_state(memory, bos_token_id)
+    cache = _decode_cache(model, memory, use_kv_cache)
     masks: list[torch.Tensor] = []
 
     for _ in range(max_new_tokens):
         active = ~finished
-        logits = _mask_logits(model.predict_next_token(tokens, memory), forbidden_token_ids)
+        logits, cache = _next_logits(model, tokens, memory, cache)
+        logits = _mask_logits(logits, forbidden_token_ids)
         next_tokens = logits.argmax(dim=-1)
         next_tokens = torch.where(active, next_tokens, torch.full_like(next_tokens, eos_token_id))
         masks.append(active)
@@ -127,18 +154,21 @@ def sample_decode(
     max_new_tokens: int,
     forbidden_token_ids: Sequence[int] = (),
     temperature: float = 1.0,
+    use_kv_cache: bool = True,
 ) -> GenerationOutput:
     if max_new_tokens < 1:
         raise ValueError("max_new_tokens must be positive")
     if temperature <= 0:
         raise ValueError("temperature must be positive")
     tokens, finished = _initial_state(memory, bos_token_id)
+    cache = _decode_cache(model, memory, use_kv_cache)
     masks: list[torch.Tensor] = []
     log_probs: list[torch.Tensor] = []
 
     for _ in range(max_new_tokens):
         active = ~finished
-        logits = model.predict_next_token(tokens, memory) / temperature
+        logits, cache = _next_logits(model, tokens, memory, cache)
+        logits = logits / temperature
         distribution = Categorical(logits=_mask_logits(logits, forbidden_token_ids))
         next_tokens = distribution.sample()
         action_log_prob = distribution.log_prob(next_tokens).masked_fill(~active, 0.0)
@@ -266,6 +296,7 @@ def scst_rollouts(
     max_new_tokens: int,
     forbidden_token_ids: Sequence[int] = (),
     sample_model_mode: str = "eval",
+    use_kv_cache: bool = True,
 ) -> SCSTRollouts:
     """Generate an inference-mode baseline and a differentiable sample.
 
@@ -291,6 +322,7 @@ def scst_rollouts(
                     eos_token_id=eos_token_id,
                     max_new_tokens=max_new_tokens,
                     forbidden_token_ids=forbidden_token_ids,
+                    use_kv_cache=use_kv_cache,
                 )
             if sample_model_mode == "train":
                 model.train()
@@ -301,6 +333,7 @@ def scst_rollouts(
                 eos_token_id=eos_token_id,
                 max_new_tokens=max_new_tokens,
                 forbidden_token_ids=forbidden_token_ids,
+                use_kv_cache=use_kv_cache,
             )
         elif sample_model_mode == "eval":
             memory = model.encode_images(pixel_values)
@@ -312,6 +345,7 @@ def scst_rollouts(
                     eos_token_id=eos_token_id,
                     max_new_tokens=max_new_tokens,
                     forbidden_token_ids=forbidden_token_ids,
+                    use_kv_cache=use_kv_cache,
                 )
             sampled = sample_decode(
                 model,
@@ -320,6 +354,7 @@ def scst_rollouts(
                 eos_token_id=eos_token_id,
                 max_new_tokens=max_new_tokens,
                 forbidden_token_ids=forbidden_token_ids,
+                use_kv_cache=use_kv_cache,
             )
         else:
             with torch.no_grad():
@@ -331,6 +366,7 @@ def scst_rollouts(
                     eos_token_id=eos_token_id,
                     max_new_tokens=max_new_tokens,
                     forbidden_token_ids=forbidden_token_ids,
+                    use_kv_cache=use_kv_cache,
                 )
             model.train()
             sample_memory = model.encode_images(pixel_values)
@@ -341,6 +377,7 @@ def scst_rollouts(
                 eos_token_id=eos_token_id,
                 max_new_tokens=max_new_tokens,
                 forbidden_token_ids=forbidden_token_ids,
+                use_kv_cache=use_kv_cache,
             )
         return SCSTRollouts(baseline=baseline, sampled=sampled)
     finally:

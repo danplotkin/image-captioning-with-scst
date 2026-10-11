@@ -739,6 +739,7 @@ def command_train_scst(args: argparse.Namespace) -> int:
         device=device,
         max_new_tokens=config.model.max_seq_length,
         sample_model_mode=config.scst.sample_model_mode,
+        use_kv_cache=config.runtime.use_kv_cache,
         include_eos_in_reward=include_eos,
         scheduler=scheduler,
         amp=config.runtime.amp,
@@ -887,6 +888,7 @@ def _generate_records(
                     output = greedy_decode(
                         model,
                         memory,
+                        use_kv_cache=config.runtime.use_kv_cache,
                         bos_token_id=special.bos,
                         eos_token_id=special.eos,
                         max_new_tokens=config.model.max_seq_length,
@@ -1251,6 +1253,7 @@ def command_caption(args: argparse.Namespace) -> int:
                 output = greedy_decode(
                     model,
                     memory,
+                    use_kv_cache=config.runtime.use_kv_cache,
                     bos_token_id=special.bos,
                     eos_token_id=special.eos,
                     max_new_tokens=config.model.max_seq_length,

@@ -57,6 +57,7 @@ class SCSTTrainer:
         device: torch.device,
         max_new_tokens: int,
         sample_model_mode: str = "eval",
+        use_kv_cache: bool = True,
         include_eos_in_reward: bool = False,
         reward_eos_token: str = "<eos>",
         scheduler: Any | None = None,
@@ -71,6 +72,7 @@ class SCSTTrainer:
         self.device = device
         self.max_new_tokens = max_new_tokens
         self.sample_model_mode = sample_model_mode
+        self.use_kv_cache = use_kv_cache
         self.include_eos_in_reward = include_eos_in_reward
         self.reward_eos_token = reward_eos_token
         self.scheduler = scheduler
@@ -143,6 +145,7 @@ class SCSTTrainer:
                     max_new_tokens=self.max_new_tokens,
                     forbidden_token_ids=self.forbidden_token_ids,
                     sample_model_mode=self.sample_model_mode,
+                    use_kv_cache=self.use_kv_cache,
                 )
             baseline_text = self._decode_for_reward(rollouts.baseline)
             sampled_text = self._decode_for_reward(rollouts.sampled)
@@ -218,6 +221,7 @@ class SCSTTrainer:
                         eos_token_id=self.special_tokens.eos,
                         max_new_tokens=self.max_new_tokens,
                         forbidden_token_ids=self.forbidden_token_ids,
+                        use_kv_cache=self.use_kv_cache,
                     )
                 predictions = self._decode_for_reward(output)
                 rewards = self._reward_tensor(predictions, self._references_for_reward(references))

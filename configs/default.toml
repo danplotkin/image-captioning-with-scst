@@ -35,7 +35,7 @@ gradient_clip_norm = 1.0
 patience = 2
 
 [scst]
-epochs = 8
+epochs = 20
 batch_size = 12
 learning_rate = 0.00005
 lr_decay = 0.85

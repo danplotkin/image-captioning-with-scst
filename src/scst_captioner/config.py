@@ -79,6 +79,7 @@ class RuntimeConfig:
     device: str = "auto"
     amp: bool = True
     output_dir: str = "artifacts"
+    use_kv_cache: bool = True
 
 
 @dataclass(frozen=True)
