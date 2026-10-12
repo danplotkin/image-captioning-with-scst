@@ -63,7 +63,9 @@ def export_reward_curve(
             label="Current policy (greedy)",
         )
         if xe_validation_reward is not None:
-            axes.axhline(xe_validation_reward, linestyle="--", color="tab:orange", label="XE (greedy)")
+            axes.axhline(
+                xe_validation_reward, linestyle="--", color="tab:orange", label="XE (greedy)"
+            )
         axes.set(title="SCST validation reward", xlabel="Epoch", ylabel=reward_name)
         axes.set_xticks(epochs)
         axes.grid(alpha=0.3)

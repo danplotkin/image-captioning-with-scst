@@ -50,7 +50,9 @@ def corpus(setup_script, tmp_path, monkeypatch):
     }
     source = directory / setup_script.ANNOTATION_NAME
     source.write_text(json.dumps(annotations))
-    monkeypatch.setattr(setup_script, "ANNOTATION_HASH", hashlib.sha256(source.read_bytes()).hexdigest())
+    monkeypatch.setattr(
+        setup_script, "ANNOTATION_HASH", hashlib.sha256(source.read_bytes()).hexdigest()
+    )
     for index in range(3):
         Image.new("RGB", (3, 3), (index, index, index)).save(images / f"{index}.jpg")
     return directory, source, annotations
@@ -60,9 +62,7 @@ def _no_network(*args, **kwargs):
     pytest.fail("Verified local assets should not trigger a download")
 
 
-def test_setup_is_repeatable_and_loads_through_training_cli(
-    setup_script, corpus, monkeypatch
-):
+def test_setup_is_repeatable_and_loads_through_training_cli(setup_script, corpus, monkeypatch):
     directory, _, _ = corpus
     monkeypatch.setattr(setup_script, "urlopen", _no_network)
     setup_script.main()
@@ -71,7 +71,10 @@ def test_setup_is_repeatable_and_loads_through_training_cli(
     assert manifest.dataset == "flickr30k"
     assert manifest.algorithm_version == "flickr30k-karpathy-split-v1"
     assert (manifest.train, manifest.validation, manifest.test, manifest.excluded) == (
-        ("0.jpg",), ("1.jpg",), ("2.jpg",), ()
+        ("0.jpg",),
+        ("1.jpg",),
+        ("2.jpg",),
+        (),
     )
     assert records[0].captions == ('A child says, "hello".',) * 5
     paths = [directory / "captions.csv", Path(config.data.split_manifest)]

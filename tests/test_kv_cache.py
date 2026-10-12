@@ -23,9 +23,7 @@ def make_model(encoder_hidden_size=4):
 @pytest.mark.parametrize("encoder_hidden_size", [3, 4, 7])
 def test_cached_prefix_logits_and_gradients(batch_size, encoder_hidden_size):
     model = make_model(encoder_hidden_size)
-    tokens = torch.tensor(
-        [[1, 4, 0, 5, 2, 2], [1, 6, 7, 0, 0, 2], [1, 0, 4, 8, 5, 2]]
-    )[:batch_size]
+    tokens = torch.tensor([[1, 4, 0, 5, 2, 2], [1, 6, 7, 0, 0, 2], [1, 0, 4, 8, 5, 2]])[:batch_size]
     memory = torch.randn(batch_size, 4, encoder_hidden_size, requires_grad=True)
     results = []
     for cached in (False, True):

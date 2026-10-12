@@ -810,7 +810,9 @@ def command_train_scst(args: argparse.Namespace) -> int:
         print("Evaluating pre-SCST XE policy on validation (greedy)", flush=True)
         xe_validation_reward = trainer.evaluate(validation_loader)
     else:
-        xe_validation_reward = resume_checkpoint.get("training_state", {}).get("xe_validation_reward")
+        xe_validation_reward = resume_checkpoint.get("training_state", {}).get(
+            "xe_validation_reward"
+        )
     write_json(
         run_dir / "xe_validation.json",
         {"reward": config.scst.reward, "decoder": "greedy", "value": xe_validation_reward},
