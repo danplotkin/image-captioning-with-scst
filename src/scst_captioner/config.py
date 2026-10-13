@@ -24,6 +24,8 @@ class ModelConfig:
     dropout: float = 0.1
     activation: Literal["relu", "gelu"] = "relu"
     freeze_encoder: bool = True
+    encoder_trainable_blocks: int | None = None
+    encoder_train_final_layer_norm: bool = False
 
 
 @dataclass(frozen=True)
@@ -43,6 +45,8 @@ class DataConfig:
 
 @dataclass(frozen=True)
 class XEConfig:
+    init_checkpoint: str | None = None
+    encoder_learning_rate: float | None = None
     epochs: int = 15
     batch_size: int = 40
     learning_rate: float = 1e-4
@@ -109,6 +113,15 @@ class ExperimentConfig:
             raise ValueError("model.dropout must be in [0, 1)")
         if self.model.activation not in {"relu", "gelu"}:
             raise ValueError("model.activation must be 'relu' or 'gelu'")
+        blocks = self.model.encoder_trainable_blocks
+        if blocks is not None and blocks < 0:
+            raise ValueError("model.encoder_trainable_blocks cannot be negative")
+        if self.model.freeze_encoder and (blocks or self.model.encoder_train_final_layer_norm):
+            raise ValueError("Set model.freeze_encoder=false to enable encoder fine-tuning")
+        if self.xe.encoder_learning_rate is not None and self.xe.encoder_learning_rate <= 0:
+            raise ValueError("xe.encoder_learning_rate must be positive")
+        if self.xe.init_checkpoint is not None and not self.xe.init_checkpoint.strip():
+            raise ValueError("xe.init_checkpoint must be a non-empty path")
         if self.data.expected_references_per_image < 1:
             raise ValueError("data.expected_references_per_image must be positive")
         if self.data.min_caption_words < 1:

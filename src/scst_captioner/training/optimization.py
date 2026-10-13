@@ -7,6 +7,8 @@ from collections.abc import Iterable
 import torch
 from torch import nn
 
+from scst_captioner.config import XEConfig
+
 
 def step_optimizer(
     optimizer: torch.optim.Optimizer,
@@ -45,3 +47,21 @@ def step_optimizer(
     scaler.update()
     # A successful step keeps or grows the scale; overflow reduces it.
     return scaler.get_scale() >= previous_scale
+
+
+def build_xe_optimizer(model: nn.Module, config: XEConfig) -> torch.optim.AdamW:
+    """Preserve the legacy single group unless an encoder LR is specified."""
+    parameters = [p for p in model.parameters() if p.requires_grad]
+    if config.encoder_learning_rate is None:
+        return torch.optim.AdamW(
+            parameters,
+            lr=config.learning_rate,
+            weight_decay=config.weight_decay,
+        )
+    encoder_ids = {id(p) for p in model.backbone.parameters()}
+    groups = []
+    for is_encoder, rate in ((False, config.learning_rate), (True, config.encoder_learning_rate)):
+        selected = [p for p in parameters if (id(p) in encoder_ids) == is_encoder]
+        if selected:
+            groups.append({"params": selected, "lr": rate})
+    return torch.optim.AdamW(groups, lr=config.learning_rate, weight_decay=config.weight_decay)

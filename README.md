@@ -398,3 +398,38 @@ exist, this repository makes no replacement performance claim.
 Flickr images are external assets with their own owners/licensing terms and are
 not relicensed by this repository. A code license has not yet been selected; add
 one deliberately before redistributing the project as open source.
+
+### XE fine-tuning with partial ViT unfreezing
+
+Keep `configs/flickr30k.toml` for the original frozen-encoder experiment. To
+initialize a new XE run from its best checkpoint:
+
+```bash
+uv run scst-captioner train-xe --config configs/flickr30k-xe-finetune.toml
+```
+
+The new, standalone config trains the final two ViT blocks and final LayerNorm
+at `xe.encoder_learning_rate = 0.000001`, while the caption decoder trains at
+`xe.learning_rate = 0.00001`. Patch embeddings and earlier blocks stay frozen
+and in eval mode. It runs up to five epochs with patience two, writing under
+`artifacts/flickr30k-xe-finetune/xe`. Ensure `xe.init_checkpoint` points to the
+original run's `best.pt`; training does not download that checkpoint.
+
+`xe.init_checkpoint` loads model weights, validates the XE stage, architecture,
+dataset and preprocessing, and records the parent path/hash. Optimizer,
+scheduler, scaler, history and early stopping start fresh. To resume this new
+run, make a copy of its config without `xe.init_checkpoint` and use `--resume`
+with its `last.pt`. All training settings must still match. Initialization and
+resume cannot be requested together.
+
+New fields are optional. Without `model.encoder_trainable_blocks`, the existing
+`freeze_encoder` behavior is preserved (true freezes everything; false trains
+everything). With a block count, `freeze_encoder` must be false to train any
+blocks; zero freezes all blocks. `encoder_train_final_layer_norm` defaults to
+false and controls the final norm in partial mode. A count cannot exceed the
+backbone's number of blocks. Omitting `xe.encoder_learning_rate` preserves the
+original single optimizer group. Older checkpoints receive these new defaults
+during compatibility checks without modifying their saved metadata.
+
+Use the fine-tuned XE checkpoint as the next SCST parent. SCST retains its own
+`scst.learning_rate`; the separate encoder rate described here applies to XE.

@@ -70,6 +70,7 @@ from scst_captioner.tokenization import (
     resolve_special_token_ids,
 )
 from scst_captioner.training import SCSTTrainer, XETrainer
+from scst_captioner.training.optimization import build_xe_optimizer
 from scst_captioner.training.plots import export_loss_curve, export_reward_curve
 
 
@@ -183,6 +184,23 @@ def _write_run_metadata(
     write_json(directory / "provenance.json", provenance)
 
 
+def _normalized_checkpoint_config(stored_config: Any) -> Any:
+    """Backfill new defaults without mutating checkpoint metadata."""
+    if not isinstance(stored_config, dict):
+        return stored_config
+    stored_config = {**stored_config}
+    for section, defaults in {
+        "model": {"encoder_trainable_blocks": None, "encoder_train_final_layer_norm": False},
+        "xe": {"encoder_learning_rate": None},
+    }.items():
+        if isinstance(stored_config.get(section), dict):
+            stored_config[section] = {**defaults, **stored_config[section]}
+    if isinstance(stored_config.get("xe"), dict):
+        # Initial weights are provenance, not a setting for subsequent updates.
+        stored_config["xe"].pop("init_checkpoint", None)
+    return stored_config
+
+
 def _validate_checkpoint_config(
     checkpoint: dict[str, Any],
     config: ExperimentConfig,
@@ -190,6 +208,7 @@ def _validate_checkpoint_config(
     expected_stage: str | None = None,
     full_config: bool = False,
     allow_legacy: bool = False,
+    allow_freezing_change: bool = False,
 ) -> None:
     if checkpoint.get("legacy") or checkpoint.get("unverified_legacy"):
         if not allow_legacy:
@@ -203,7 +222,8 @@ def _validate_checkpoint_config(
             f"Expected a {expected_stage!r} checkpoint, found {checkpoint.get('stage')!r}"
         )
     stored_config = checkpoint.get("config")
-    expected_config = config.to_dict()
+    stored_config = _normalized_checkpoint_config(stored_config)
+    expected_config = _normalized_checkpoint_config(config.to_dict())
     expected = expected_config if full_config else expected_config["model"]
     actual = (
         stored_config
@@ -212,6 +232,14 @@ def _validate_checkpoint_config(
         if isinstance(stored_config, dict)
         else None
     )
+    if allow_freezing_change and not full_config and isinstance(actual, dict):
+        policy_keys = {
+            "freeze_encoder",
+            "encoder_trainable_blocks",
+            "encoder_train_final_layer_norm",
+        }
+        actual = {k: v for k, v in actual.items() if k not in policy_keys}
+        expected = {k: v for k, v in expected.items() if k not in policy_keys}
     if actual != expected:
         scope = "experiment" if full_config else "model"
         raise ValueError(f"Checkpoint {scope} configuration does not match the requested config")
@@ -238,11 +266,11 @@ def _validate_checkpoint_data(
 
 
 def _validate_checkpoint_scientific_protocol(
-    checkpoint: dict[str, Any], config: ExperimentConfig
+    checkpoint: dict[str, Any], config: ExperimentConfig, *, allow_xe_training_change: bool = False
 ) -> None:
     if checkpoint.get("legacy") or checkpoint.get("unverified_legacy"):
         return
-    stored = checkpoint.get("config")
+    stored = _normalized_checkpoint_config(checkpoint.get("config"))
     if not isinstance(stored, dict):
         raise ValueError("Checkpoint is missing its resolved configuration")
     stage = checkpoint.get("stage")
@@ -254,7 +282,11 @@ def _validate_checkpoint_scientific_protocol(
             "reward_protocol"
         ) != _reward_protocol_metadata(config):
             raise ValueError("SCST checkpoint reward implementation does not match environment")
-    if stage == "xe" and stored.get("xe") != config.to_dict()["xe"]:
+    if (
+        stage == "xe"
+        and not allow_xe_training_change
+        and stored.get("xe") != _normalized_checkpoint_config(config.to_dict())["xe"]
+    ):
         raise ValueError("XE checkpoint training protocol does not match config")
     stored_data = stored.get("data")
     current_data = config.to_dict()["data"]
@@ -464,6 +496,8 @@ def command_validate_data(args: argparse.Namespace) -> int:
 
 def command_train_xe(args: argparse.Namespace) -> int:
     config = load_config(args.config)
+    if args.resume and config.xe.init_checkpoint:
+        raise ValueError("Remove xe.init_checkpoint when using --resume")
     seed_everything(config.runtime.seed, deterministic=config.runtime.deterministic)
     device = resolve_device(config.runtime.device)
     records, manifest = _load_corpus(config)
@@ -496,11 +530,23 @@ def command_train_xe(args: argparse.Namespace) -> int:
         config=config,
     )
     model = build_model(config.model, tokenizer).to(device)
-    optimizer = torch.optim.AdamW(
-        (parameter for parameter in model.parameters() if parameter.requires_grad),
-        lr=config.xe.learning_rate,
-        weight_decay=config.xe.weight_decay,
-    )
+    source_metadata: dict[str, Any] = {}
+    if config.xe.init_checkpoint:
+        source_metadata = load_model_checkpoint(
+            model, config.xe.init_checkpoint, map_location="cpu"
+        )
+        _validate_checkpoint_config(
+            source_metadata,
+            config,
+            expected_stage="xe",
+            allow_freezing_change=True,
+        )
+        _validate_checkpoint_data(source_metadata, config, manifest)
+        _validate_checkpoint_scientific_protocol(
+            source_metadata, config, allow_xe_training_change=True
+        )
+        source_metadata = {"provenance": source_metadata.get("provenance", {})}
+    optimizer = build_xe_optimizer(model, config.xe)
     from transformers import get_cosine_schedule_with_warmup
 
     total_steps = len(train_loader) * config.xe.epochs
@@ -543,9 +589,13 @@ def command_train_xe(args: argparse.Namespace) -> int:
         manifest=manifest,
         extra={
             "stage": "xe",
+            "init_checkpoint": config.xe.init_checkpoint,
+            "init_checkpoint_sha256": (
+                sha256_file(config.xe.init_checkpoint) if config.xe.init_checkpoint else None
+            ),
             "resume_checkpoint": str(Path(args.resume)) if args.resume else None,
             "resume_checkpoint_sha256": sha256_file(args.resume) if args.resume else None,
-            "parent_provenance": (resume_checkpoint or {}).get("provenance", {}),
+            "parent_provenance": (resume_checkpoint or source_metadata).get("provenance", {}),
         },
     )
     _write_run_metadata(run_dir, config, provenance)

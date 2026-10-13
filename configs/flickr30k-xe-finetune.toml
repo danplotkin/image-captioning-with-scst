@@ -1,0 +1,62 @@
+[model]
+encoder_name = "google/vit-base-patch16-384"
+encoder_revision = "2960116e809e2fca84146dbb240289aee7db4827"
+tokenizer_name = "distilbert-base-uncased"
+tokenizer_revision = "12040accade4e8a0f71eabdb258fecc2e7e948be"
+max_seq_length = 80
+d_model = 768
+num_heads = 12
+feedforward_dim = 1536
+num_decoder_layers = 4
+dropout = 0.1
+activation = "relu"
+freeze_encoder = false
+encoder_trainable_blocks = 4
+encoder_train_final_layer_norm = true
+
+[data]
+images_dir = "data/flickr30k/kaggle/flickr30k_images/flickr30k_images"
+captions_file = "data/flickr30k/captions.csv"
+split_manifest = "data/splits/flickr30k.json"
+min_caption_words = 1
+expected_references_per_image = 5
+num_workers = 2
+horizontal_flip_probability = 0.0
+rotation_degrees = 10.0
+color_jitter_probability = 0.3
+brightness = 0.3
+hue = 0.0
+
+[xe]
+init_checkpoint = "artifacts/flickr30k/xe/best.pt"
+encoder_learning_rate = 0.000001
+epochs = 5
+batch_size = 40
+learning_rate = 0.00001
+weight_decay = 0.01
+warmup_ratio = 0.1
+gradient_clip_norm = 1.0
+patience = 2
+
+[scst]
+epochs = 15
+batch_size = 12
+learning_rate = 0.00005
+lr_decay = 0.85
+gradient_clip_norm = 1.0
+reward = "cider_d"
+baseline = "greedy"
+sample_model_mode = "eval"
+
+[evaluation]
+beam_size = 3
+length_penalty_alpha = 0.7
+include_spice = false
+metrics_backend = "coco"
+
+[runtime]
+seed = 42
+deterministic = false
+device = "auto"
+amp = true
+output_dir = "artifacts/flickr30k-xe-finetune"

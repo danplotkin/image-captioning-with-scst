@@ -181,6 +181,14 @@ def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
             assert curve.format == "PNG"
             assert curve.width > 0 and curve.height > 0
 
+        if stage == "xe":
+            # Simulate a checkpoint written before optional fine-tuning fields.
+            old_checkpoint = load_checkpoint_file(directory / "epoch1.pt")
+            for key in ("encoder_trainable_blocks", "encoder_train_final_layer_norm"):
+                old_checkpoint["config"]["model"].pop(key)
+            for key in ("init_checkpoint", "encoder_learning_rate"):
+                old_checkpoint["config"]["xe"].pop(key)
+            save_checkpoint(old_checkpoint, directory / "epoch1.pt")
         args.resume = str(directory / "epoch1.pt")
         args.output_dir = str(tmp_path / f"{stage}-resumed")
         assert command(args) == 0
@@ -196,3 +204,50 @@ def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
         assert resumed["training_state"]["history"] == uninterrupted["training_state"]["history"]
         for name, tensor in uninterrupted["model_state"].items():
             assert torch.equal(tensor, resumed["model_state"][name]), name
+
+    # A new XE run can change freezing policy and optimizer groups while keeping
+    # the original data protocol. Its own epoch-boundary resume remains exact.
+    parent_path = tmp_path / "xe" / "best.pt"
+    parent = load_checkpoint_file(parent_path)
+    config = dataclasses.replace(
+        config,
+        model=dataclasses.replace(
+            config.model,
+            freeze_encoder=False,
+            encoder_trainable_blocks=1,
+            encoder_train_final_layer_norm=True,
+        ),
+        xe=dataclasses.replace(
+            config.xe,
+            init_checkpoint=str(parent_path),
+            learning_rate=1e-5,
+            encoder_learning_rate=1e-6,
+        ),
+    )
+    args = argparse.Namespace(
+        config="fixture.toml",
+        output_dir=str(tmp_path / "fine"),
+        resume=None,
+        overwrite=False,
+    )
+    assert cli.command_train_xe(args) == 0
+    fine = load_checkpoint_file(tmp_path / "fine" / "last.pt")
+    assert len(fine["training_state"]["history"]) == 2
+    assert fine["progress"]["global_step"] == 4  # Two new epochs, two batches each.
+    assert fine["provenance"]["init_checkpoint_sha256"] == cli.sha256_file(parent_path)
+    assert len(fine["optimizer_state"]["param_groups"]) == 2
+    embedding_key = "backbone.backbone.embeddings.patch_embeddings.projection.weight"
+    block_key = "backbone.backbone.encoder.layer.0.output.dense.weight"
+    assert torch.equal(parent["model_state"][embedding_key], fine["model_state"][embedding_key])
+    assert not torch.equal(parent["model_state"][block_key], fine["model_state"][block_key])
+    args.resume = str(tmp_path / "fine" / "epoch1.pt")
+    args.output_dir = str(tmp_path / "fine-resumed")
+    with pytest.raises(ValueError, match=r"Remove xe\.init_checkpoint"):
+        cli.command_train_xe(args)
+    config = dataclasses.replace(config, xe=dataclasses.replace(config.xe, init_checkpoint=None))
+    assert cli.command_train_xe(args) == 0
+    resumed = load_checkpoint_file(tmp_path / "fine-resumed" / "last.pt")
+    assert resumed["progress"] == fine["progress"]
+    assert resumed["training_state"]["history"] == fine["training_state"]["history"]
+    for name, tensor in fine["model_state"].items():
+        assert torch.equal(tensor, resumed["model_state"][name]), name

@@ -15,18 +15,46 @@ from scst_captioner.decoder import CaptionDecoder, DecodeCache
 class VisionBackbone(nn.Module):
     """Thin wrapper that keeps a frozen vision encoder deterministic."""
 
-    def __init__(self, backbone: nn.Module, *, frozen: bool) -> None:
+    def __init__(
+        self,
+        backbone: nn.Module,
+        *,
+        frozen: bool,
+        trainable_blocks: int | None = None,
+        train_final_layer_norm: bool = False,
+    ) -> None:
         super().__init__()
         self.backbone = backbone
-        self.frozen = frozen
-        if frozen:
-            self.backbone.requires_grad_(False)
-            self.backbone.eval()
+        # Plain references preserve existing checkpoint state-dict paths.
+        self._trainable_modules: list[nn.Module] | None = None
+        if frozen and (trainable_blocks or train_final_layer_norm):
+            raise ValueError("Cannot unfreeze blocks or LayerNorm with frozen=True")
+        if trainable_blocks is not None:
+            blocks = getattr(getattr(backbone, "encoder", None), "layer", None)
+            if blocks is None:
+                raise ValueError("Partial unfreezing requires a ViT backbone with encoder.layer")
+            if not 0 <= trainable_blocks <= len(blocks):
+                raise ValueError(f"encoder_trainable_blocks must be in [0, {len(blocks)}]")
+            backbone.requires_grad_(False)
+            self._trainable_modules = list(blocks[-trainable_blocks:]) if trainable_blocks else []
+            if train_final_layer_norm:
+                norm = getattr(backbone, "layernorm", None)
+                if norm is None:
+                    raise ValueError("ViT backbone is missing its final layernorm")
+                self._trainable_modules.append(norm)
+            for module in self._trainable_modules:
+                module.requires_grad_(True)
+        else:
+            backbone.requires_grad_(not frozen)
+        self.frozen = not any(parameter.requires_grad for parameter in backbone.parameters())
+        self.train(self.training)
 
     def train(self, mode: bool = True) -> VisionBackbone:
         super().train(mode)
-        if self.frozen:
+        if self.frozen or self._trainable_modules is not None:
             self.backbone.eval()
+            for module in self._trainable_modules or []:
+                module.train(mode)
         return self
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
@@ -127,7 +155,12 @@ class CPTRCaptioner(nn.Module):
         self.config = config
         self.pad_token_id = pad_token_id
         self.max_length = config.max_seq_length
-        self.backbone = VisionBackbone(backbone, frozen=config.freeze_encoder)
+        self.backbone = VisionBackbone(
+            backbone,
+            frozen=config.freeze_encoder,
+            trainable_blocks=config.encoder_trainable_blocks,
+            train_final_layer_norm=config.encoder_train_final_layer_norm,
+        )
         self.positional_embedding = PositionalEmbedding(
             vocab_size,
             config.d_model,
