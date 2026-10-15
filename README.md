@@ -399,6 +399,45 @@ Flickr images are external assets with their own owners/licensing terms and are
 not relicensed by this repository. A code license has not yet been selected; add
 one deliberately before redistributing the project as open source.
 
+### SCST versus vanilla REINFORCE
+
+Both methods use the same `PolicyGradientTrainer` and `reinforce_loss`. Configure
+`scst.baseline = "greedy"` for SCST (sample reward minus greedy reward), or
+`scst.baseline = "none"` for vanilla REINFORCE (raw sample reward, zero baseline).
+Vanilla REINFORCE skips greedy generation and scoring during training. Both
+methods still evaluate greedy captions on validation and select the best
+checkpoint by validation reward. Their training losses have different meanings;
+compare validation rewards and caption metrics rather than raw loss magnitudes.
+
+The paired Flickr30k configs retain the fine-tuned model's last four trainable ViT
+blocks and final LayerNorm. They match the fine-tuned XE parent's saved model,
+data, and XE protocol, and differ only in the RL baseline. Start each run from
+the **same** fine-tuned XE checkpoint, never from the other RL run:
+
+```bash
+uv run scst-captioner train-rl \
+  --config configs/flickr30k-scst.toml \
+  --xe-checkpoint artifacts/flickr30k-xe-finetune-runpod/best.pt
+
+# After the first command succeeds, independently initialize vanilla REINFORCE.
+uv run scst-captioner train-rl \
+  --config configs/flickr30k-reinforce.toml \
+  --xe-checkpoint artifacts/flickr30k-xe-finetune-runpod/best.pt
+```
+
+Outputs default to `artifacts/flickr30k-policy-gradient/scst/` and
+`artifacts/flickr30k-policy-gradient/reinforce/`. Each process seeds itself from
+the config. Keep equal update budgets for the initial baseline ablation; measure
+wall-clock time separately because vanilla REINFORCE omits a rollout. Multiple
+seeds are needed to assess variation beyond this first paired run.
+
+`train-scst` remains an alias-compatible entrypoint, and the `[scst]` config
+section and checkpoint `stage = "scst"` remain for compatibility with existing
+checkpoints and evaluation tools. The baseline in resolved config and
+`policy_gradient_method` in provenance identify the actual method. Resume rejects
+switching the baseline. `SCSTTrainer` remains a compatibility alias for
+`PolicyGradientTrainer`; existing SCST callers keep the greedy default.
+
 ### XE fine-tuning with partial ViT unfreezing
 
 Keep `configs/flickr30k.toml` for the original frozen-encoder experiment. To
@@ -408,7 +447,7 @@ initialize a new XE run from its best checkpoint:
 uv run scst-captioner train-xe --config configs/flickr30k-xe-finetune.toml
 ```
 
-The new, standalone config trains the final two ViT blocks and final LayerNorm
+The new, standalone config trains the final four ViT blocks and final LayerNorm
 at `xe.encoder_learning_rate = 0.000001`, while the caption decoder trains at
 `xe.learning_rate = 0.00001`. Patch embeddings and earlier blocks stay frozen
 and in eval mode. It runs up to five epochs with patience two, writing under

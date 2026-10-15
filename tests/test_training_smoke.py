@@ -65,6 +65,105 @@ class OrderedReward:
         return [0.0 if self.calls % 2 else 1.0] * batch_size
 
 
+def test_vanilla_reinforce_uses_raw_reward_and_updates_policy() -> None:
+    torch.manual_seed(7)
+    policy = TinyPolicy()
+    calls = []
+
+    def reward(predictions, references):
+        calls.append(predictions)
+        return [2.0] * len(predictions)
+
+    trainer = SCSTTrainer(
+        policy,
+        torch.optim.Adam(policy.parameters(), lr=0.01),
+        tokenizer=TinyTokenizer(),
+        reward=reward,
+        device=torch.device("cpu"),
+        max_new_tokens=2,
+        baseline="none",
+        amp=False,
+    )
+    before = policy.step_logits.detach().clone()
+    metrics = trainer.train_epoch(
+        [
+            {
+                "image_ids": ["image.jpg"],
+                "pixel_values": torch.ones(1, 3, 2, 2),
+                "references": [["one", "two"]],
+            }
+        ]
+    )
+    assert len(calls) == 1
+    assert metrics.sampled_reward == metrics.advantage == 2.0
+    assert metrics.baseline_reward == 0.0
+    assert trainer.global_step == 1
+    assert not torch.equal(before, policy.step_logits.detach())
+
+
+@pytest.mark.parametrize("baseline", ["none", "greedy"])
+def test_policy_gradient_trainer_matches_analytic_reward_weighted_update(
+    monkeypatch: pytest.MonkeyPatch, baseline: str
+) -> None:
+    """Check the trainer's actual loss and update, including EOS/padding masking."""
+    from scst_captioner.generation import GenerationOutput, SCSTRollouts
+
+    policy = nn.Module()
+    policy.log_probs = nn.Parameter(torch.tensor([[-0.2, -0.3, -9.0], [-0.4, -0.1, -8.0]]))
+    mask = torch.tensor([[True, True, False], [True, True, False]])
+    sampled = GenerationOutput(
+        token_ids=torch.tensor([[1, 3, 2, 2], [1, 3, 2, 2]]),
+        action_log_probs=policy.log_probs,
+        action_mask=mask,
+    )
+    greedy = GenerationOutput(token_ids=sampled.token_ids, action_log_probs=None, action_mask=mask)
+
+    def rollouts(*args, **kwargs):
+        assert kwargs["baseline"] == baseline
+        return SCSTRollouts(baseline=greedy if baseline == "greedy" else None, sampled=sampled)
+
+    monkeypatch.setattr("scst_captioner.training.scst.scst_rollouts", rollouts)
+    calls = []
+    sampled_rewards = torch.tensor([2.0, -1.0], requires_grad=True)
+
+    def reward(predictions, references):
+        calls.append(predictions)
+        if baseline == "greedy" and len(calls) == 1:
+            return [0.5, 1.5]
+        return sampled_rewards
+
+    trainer = SCSTTrainer(
+        policy,
+        torch.optim.SGD(policy.parameters(), lr=0.1),
+        tokenizer=TinyTokenizer(),
+        reward=reward,
+        device=torch.device("cpu"),
+        max_new_tokens=3,
+        baseline=baseline,
+        amp=False,
+        gradient_clip_norm=100.0,
+    )
+    before = policy.log_probs.detach().clone()
+    metrics = trainer.train_epoch(
+        [
+            {
+                "image_ids": ["a.jpg", "b.jpg"],
+                "pixel_values": torch.ones(2, 3, 2, 2),
+                "references": [["a"], ["b"]],
+            }
+        ]
+    )
+    weights = torch.tensor([2.0, -1.0] if baseline == "none" else [1.5, -2.5])
+    expected_loss = -(weights * torch.tensor([-0.5, -0.5])).mean()
+    expected_grad = -weights[:, None].expand_as(before) * mask / 2
+    assert metrics.loss == pytest.approx(expected_loss.item())
+    assert metrics.advantage == pytest.approx(weights.mean().item())
+    assert len(calls) == (1 if baseline == "none" else 2)
+    torch.testing.assert_close(policy.log_probs.grad, expected_grad)
+    torch.testing.assert_close(policy.log_probs, before - 0.1 * expected_grad)
+    assert sampled_rewards.grad is None
+
+
 def test_tiny_cpu_xe_and_scst_optimizer_steps_complete() -> None:
     torch.manual_seed(7)
     xe_model = TinyXEModel()

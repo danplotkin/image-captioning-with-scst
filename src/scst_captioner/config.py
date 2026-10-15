@@ -64,7 +64,7 @@ class SCSTConfig:
     lr_decay: float = 0.85
     gradient_clip_norm: float = 1.0
     reward: Literal["nltk_meteor", "cider_d"] = "cider_d"
-    baseline: Literal["greedy"] = "greedy"
+    baseline: Literal["greedy", "none"] = "greedy"
     sample_model_mode: Literal["train", "eval"] = "eval"
 
 
@@ -154,8 +154,8 @@ class ExperimentConfig:
             raise ValueError("scst.gradient_clip_norm must be positive")
         if self.scst.reward not in {"nltk_meteor", "cider_d"}:
             raise ValueError("scst.reward must be 'nltk_meteor' or 'cider_d'")
-        if self.scst.baseline != "greedy":
-            raise ValueError("scst.baseline currently supports only 'greedy'")
+        if self.scst.baseline not in {"greedy", "none"}:
+            raise ValueError("scst.baseline must be 'greedy' or 'none'")
         if self.scst.sample_model_mode not in {"train", "eval"}:
             raise ValueError("scst.sample_model_mode must be 'train' or 'eval'")
         if self.evaluation.beam_size < 1:

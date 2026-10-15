@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 import torch
 from torch import nn
 
@@ -101,6 +102,53 @@ def test_train_mode_sampling_is_explicit_but_baseline_stays_eval() -> None:
     assert model.training is False
     assert model.predict_modes[0] is False
     assert True in model.predict_modes[1:]
+
+
+@pytest.mark.parametrize("frozen", [True, False])
+@pytest.mark.parametrize("mode", ["eval", "train"])
+def test_no_baseline_skips_greedy_and_preserves_encoder_gradients(
+    monkeypatch: pytest.MonkeyPatch, frozen: bool, mode: str
+) -> None:
+    class Policy(ScriptedModel):
+        def __init__(self):
+            super().__init__()
+            self.encoder_is_frozen = frozen
+            self.encoder_weight = nn.Parameter(torch.tensor(0.5), requires_grad=not frozen)
+
+        def encode_images(self, pixels):
+            self.encode_modes.append(self.training)
+            return pixels.mean(dim=(1, 2, 3)).reshape(-1, 1, 1) * self.encoder_weight
+
+        def predict_next_token(self, tokens, memory):
+            self.predict_modes.append(self.training)
+            return self.logits[0].expand(tokens.size(0), -1) + (
+                memory.reshape(-1, 1) * torch.arange(self.logits.size(-1))
+            )
+
+    def forbidden_greedy(*args, **kwargs):
+        raise AssertionError("vanilla REINFORCE must not run a greedy rollout")
+
+    monkeypatch.setattr("scst_captioner.generation.greedy_decode", forbidden_greedy)
+    model = Policy()
+    model.train()
+    result = scst_rollouts(
+        model,
+        torch.ones(1, 1, 1, 1),
+        bos_token_id=1,
+        eos_token_id=2,
+        max_new_tokens=2,
+        baseline="none",
+        sample_model_mode=mode,
+        use_kv_cache=False,
+    )
+    assert result.baseline is None
+    assert model.training is True
+    assert model.encode_modes == [False if frozen else mode == "train"]
+    assert all(value == (mode == "train") for value in model.predict_modes)
+    assert result.sampled.action_log_probs is not None
+    result.sampled.action_log_probs.masked_select(result.sampled.action_mask).sum().backward()
+    assert model.logits.grad is not None
+    assert (model.encoder_weight.grad is None) == frozen
 
 
 def test_special_tokens_are_forbidden_except_eos() -> None:

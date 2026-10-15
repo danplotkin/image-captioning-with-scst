@@ -16,8 +16,9 @@ from scst_captioner.config import ExperimentConfig, ModelConfig
 from scst_captioner.model import CPTRCaptioner
 
 
+@pytest.mark.parametrize("baseline", ["greedy", "none"])
 def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, baseline: str
 ) -> None:
     pytest.importorskip("pycocoevalcap")
     images = tmp_path / "Images"
@@ -94,7 +95,7 @@ def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
             color_jitter_probability=0.0,
         ),
         xe=dataclasses.replace(base.xe, epochs=2, batch_size=5, patience=3, warmup_ratio=0.0),
-        scst=dataclasses.replace(base.scst, epochs=2, batch_size=2),
+        scst=dataclasses.replace(base.scst, epochs=2, batch_size=2, baseline=baseline),
         runtime=dataclasses.replace(base.runtime, device="cpu", amp=False),
     )
 
@@ -166,6 +167,13 @@ def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
         assert command(args) == 0
         uninterrupted = load_checkpoint_file(directory / "last.pt")
         if stage == "scst":
+            assert uninterrupted["config"]["scst"]["baseline"] == baseline
+            assert uninterrupted["provenance"]["baseline"] == (
+                "greedy_eval_mode" if baseline == "greedy" else "none"
+            )
+            assert uninterrupted["provenance"]["policy_gradient_method"] == (
+                "scst" if baseline == "greedy" else "reinforce"
+            )
             assert len(validation_scores) == 3  # XE once, then each trained epoch.
             xe_score = validation_scores[0]
             assert uninterrupted["training_state"]["xe_validation_reward"] == xe_score

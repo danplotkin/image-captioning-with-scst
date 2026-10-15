@@ -89,7 +89,8 @@ def test_generation_cache_equivalence(decode, encoder_hidden_size):
 
 @pytest.mark.parametrize("mode", ["eval", "train"])
 @pytest.mark.parametrize("freeze_encoder", [False, True])
-def test_rollouts_cache_preserves_encoder_gradients_and_modes(mode, freeze_encoder):
+@pytest.mark.parametrize("baseline", ["greedy", "none"])
+def test_rollouts_cache_preserves_encoder_gradients_and_modes(mode, freeze_encoder, baseline):
     torch.manual_seed(19)
     model = CPTRCaptioner(
         tiny_config(freeze_encoder=freeze_encoder),
@@ -105,9 +106,13 @@ def test_rollouts_cache_preserves_encoder_gradients_and_modes(mode, freeze_encod
         max_new_tokens=4,
         sample_model_mode=mode,
         forbidden_token_ids=(0, 1),
+        baseline=baseline,
     )
     assert model.training
-    assert outputs.baseline.action_log_probs is None
+    if baseline == "none":
+        assert outputs.baseline is None
+    else:
+        assert outputs.baseline.action_log_probs is None
     outputs.sampled.action_log_probs.sum().backward()
     attention = model.decoder.layers[0].multihead_attn
     for weight in (attention.q_proj_weight, attention.k_proj_weight, attention.v_proj_weight):

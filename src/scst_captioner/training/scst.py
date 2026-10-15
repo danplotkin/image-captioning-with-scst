@@ -1,4 +1,4 @@
-"""Image-level, multi-reference self-critical sequence training."""
+"""Image-level, multi-reference REINFORCE with an optional self-critical baseline."""
 
 from __future__ import annotations
 
@@ -46,7 +46,7 @@ def _as_references(value: Any, batch_size: int) -> list[list[str]]:
     return references
 
 
-class SCSTTrainer:
+class PolicyGradientTrainer:
     def __init__(
         self,
         model: nn.Module,
@@ -56,6 +56,7 @@ class SCSTTrainer:
         reward: Reward,
         device: torch.device,
         max_new_tokens: int,
+        baseline: str = "greedy",
         sample_model_mode: str = "eval",
         use_kv_cache: bool = True,
         include_eos_in_reward: bool = False,
@@ -64,6 +65,10 @@ class SCSTTrainer:
         amp: bool = True,
         gradient_clip_norm: float = 1.0,
     ) -> None:
+        if baseline not in {"greedy", "none"}:
+            raise ValueError("baseline must be 'greedy' or 'none'")
+        self.baseline = baseline
+        self.method = "SCST" if baseline == "greedy" else "REINFORCE"
         special_tokens = resolve_special_token_ids(tokenizer)
         self.model = model
         self.optimizer = optimizer
@@ -122,7 +127,7 @@ class SCSTTrainer:
         totals = {"loss": 0.0, "sample": 0.0, "baseline": 0.0, "advantage": 0.0}
         image_count = 0
         updates = 0
-        for batch, report in progress_batches(loader, "SCST train"):
+        for batch, report in progress_batches(loader, f"{self.method} train"):
             pixel_values = batch.get("pixel_values")
             if not isinstance(pixel_values, torch.Tensor):
                 raise TypeError("batch['pixel_values'] must be a tensor")
@@ -131,7 +136,7 @@ class SCSTTrainer:
             references = _as_references(batch.get("references"), batch_size)
             image_ids = batch.get("image_ids")
             if image_ids is not None and len(set(image_ids)) != batch_size:
-                raise ValueError("SCST batches must contain unique image IDs")
+                raise ValueError("Policy-gradient batches must contain unique image IDs")
 
             self.optimizer.zero_grad(set_to_none=True)
             with torch.autocast(
@@ -146,11 +151,14 @@ class SCSTTrainer:
                     forbidden_token_ids=self.forbidden_token_ids,
                     sample_model_mode=self.sample_model_mode,
                     use_kv_cache=self.use_kv_cache,
+                    baseline=self.baseline,
                 )
-            baseline_text = self._decode_for_reward(rollouts.baseline)
             sampled_text = self._decode_for_reward(rollouts.sampled)
             reward_references = self._references_for_reward(references)
-            baseline_reward = self._reward_tensor(baseline_text, reward_references)
+            baseline_reward = torch.zeros(batch_size, device=self.device)
+            if rollouts.baseline is not None:
+                baseline_text = self._decode_for_reward(rollouts.baseline)
+                baseline_reward = self._reward_tensor(baseline_text, reward_references)
             sampled_reward = self._reward_tensor(sampled_text, reward_references)
             advantage = (sampled_reward - baseline_reward).detach()
             if rollouts.sampled.action_log_probs is None:
@@ -161,7 +169,7 @@ class SCSTTrainer:
                 rollouts.sampled.action_mask,
             )
             if not torch.isfinite(loss):
-                raise FloatingPointError(f"Non-finite SCST loss: {loss.item()}")
+                raise FloatingPointError(f"Non-finite {self.method} loss: {loss.item()}")
             self.scaler.scale(loss).backward()
             updated = step_optimizer(
                 self.optimizer,
@@ -184,7 +192,7 @@ class SCSTTrainer:
                 f"baseline={totals['baseline'] / image_count:.3f}"
             )
         if image_count == 0:
-            raise ValueError("SCST training loader produced no images")
+            raise ValueError("Policy-gradient training loader produced no images")
         # SCST decays once per epoch, provided training made an actual update.
         if self.scheduler is not None and updates:
             self.scheduler.step()
@@ -203,7 +211,7 @@ class SCSTTrainer:
         total_reward = 0.0
         image_count = 0
         try:
-            for batch, report in progress_batches(loader, "SCST validation"):
+            for batch, report in progress_batches(loader, f"{self.method} validation"):
                 pixel_values = batch.get("pixel_values")
                 if not isinstance(pixel_values, torch.Tensor):
                     raise TypeError("batch['pixel_values'] must be a tensor")
@@ -233,3 +241,7 @@ class SCSTTrainer:
         if image_count == 0:
             raise ValueError("SCST evaluation loader produced no images")
         return total_reward / image_count
+
+
+# Preserve the public import used by existing callers and checkpoints' tooling.
+SCSTTrainer = PolicyGradientTrainer

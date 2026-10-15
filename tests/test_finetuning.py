@@ -118,7 +118,7 @@ def test_existing_and_finetune_configs():
     assert original.model.freeze_encoder
     assert original.model.encoder_trainable_blocks is None
     assert original.xe.encoder_learning_rate is None
-    assert fine.model.encoder_trainable_blocks == 2
+    assert fine.model.encoder_trainable_blocks == 4
     assert fine.data == original.data
     assert fine.runtime.output_dir != original.runtime.output_dir
     with pytest.raises(ValueError):

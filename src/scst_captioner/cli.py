@@ -789,6 +789,7 @@ def command_train_scst(args: argparse.Namespace) -> int:
         device=device,
         max_new_tokens=config.model.max_seq_length,
         sample_model_mode=config.scst.sample_model_mode,
+        baseline=config.scst.baseline,
         use_kv_cache=config.runtime.use_kv_cache,
         include_eos_in_reward=include_eos,
         scheduler=scheduler,
@@ -810,8 +811,9 @@ def command_train_scst(args: argparse.Namespace) -> int:
         (resume_checkpoint or {}).get("training_state", {}).get("data_loader_generator_state"),
     )
     trainer.global_step = global_step
+    method = "scst" if config.scst.baseline == "greedy" else "reinforce"
     run_dir = prepare_run_dir(
-        args.output_dir or Path(config.runtime.output_dir) / "scst",
+        args.output_dir or Path(config.runtime.output_dir) / method,
         overwrite=args.overwrite or args.resume is not None,
     )
     provenance = _run_provenance(
@@ -837,7 +839,8 @@ def command_train_scst(args: argparse.Namespace) -> int:
             "reward_protocol": _reward_protocol_metadata(config),
             "reward_protocol_sha256": _sha256_json(_reward_protocol_metadata(config)),
             "reward_eos_policy": "append_on_completion" if include_eos else "excluded",
-            "baseline": "greedy_eval_mode",
+            "baseline": "greedy_eval_mode" if config.scst.baseline == "greedy" else "none",
+            "policy_gradient_method": method,
             "sample_model_mode": config.scst.sample_model_mode,
             "rollout_inference_precision": (
                 "cuda_amp_fp16" if config.runtime.amp and device.type == "cuda" else "fp32"
@@ -857,7 +860,7 @@ def command_train_scst(args: argparse.Namespace) -> int:
         else []
     )
     if resume_checkpoint is None:
-        print("Evaluating pre-SCST XE policy on validation (greedy)", flush=True)
+        print(f"Evaluating pre-{method.upper()} XE policy on validation (greedy)", flush=True)
         xe_validation_reward = trainer.evaluate(validation_loader)
     else:
         xe_validation_reward = resume_checkpoint.get("training_state", {}).get(
@@ -873,7 +876,7 @@ def command_train_scst(args: argparse.Namespace) -> int:
         print(f"XE validation {config.scst.reward}={xe_validation_reward:.4f}", flush=True)
     best_reward = _best_metric_value(resume_checkpoint, -float("inf"))
     for epoch in range(start_epoch, config.scst.epochs + 1):
-        print(f"SCST epoch {epoch}/{config.scst.epochs}", flush=True)
+        print(f"{method.upper()} epoch {epoch}/{config.scst.epochs}", flush=True)
         train_metrics = trainer.train_epoch(train_loader)
         validation_reward = trainer.evaluate(validation_loader)
         history.append(
@@ -921,12 +924,13 @@ def command_train_scst(args: argparse.Namespace) -> int:
         if improved:
             save_checkpoint(checkpoint, run_dir / "best.pt")
         write_json(run_dir / "history.json", history)
-        export_loss_curve(history, run_dir, stage="scst")
+        export_loss_curve(history, run_dir, stage="scst", method=method.upper())
         export_reward_curve(
             history,
             run_dir,
             reward_name=config.scst.reward,
             xe_validation_reward=xe_validation_reward,
+            method=method.upper(),
         )
         comparison = (
             f", xe={xe_validation_reward:.4f}, delta_vs_xe={validation_reward - xe_validation_reward:+.4f}, "
@@ -935,7 +939,7 @@ def command_train_scst(args: argparse.Namespace) -> int:
             else ""
         )
         print(
-            f"SCST epoch {epoch}: loss={train_metrics.loss:.4f}, "
+            f"{method.upper()} epoch {epoch}: loss={train_metrics.loss:.4f}, "
             f"sample={train_metrics.sampled_reward:.4f}, baseline={train_metrics.baseline_reward:.4f}, "
             f"validation_{config.scst.reward}={validation_reward:.4f}{comparison}"
         )
@@ -1269,7 +1273,8 @@ def command_evaluate_matrix(args: argparse.Namespace) -> int:
         ),
         "training_objective": _reward_protocol_metadata(config),
         "sample_model_mode": config.scst.sample_model_mode,
-        "baseline": "greedy_eval_mode",
+        "baseline": "greedy_eval_mode" if config.scst.baseline == "greedy" else "none",
+        "policy_gradient_method": "scst" if config.scst.baseline == "greedy" else "reinforce",
         "decoders": {
             "greedy": {},
             "beam": {
@@ -1409,7 +1414,9 @@ def build_parser() -> argparse.ArgumentParser:
     train_xe.add_argument("--overwrite", action="store_true")
     train_xe.set_defaults(handler=command_train_xe)
 
-    train_scst = subparsers.add_parser("train-scst", help="Fine-tune an XE model with SCST")
+    train_scst = subparsers.add_parser(
+        "train-scst", aliases=["train-rl"], help="Fine-tune XE with SCST or vanilla REINFORCE"
+    )
     train_scst.add_argument("--config", default="configs/default.toml")
     train_scst.add_argument("--xe-checkpoint")
     train_scst.add_argument("--output-dir")

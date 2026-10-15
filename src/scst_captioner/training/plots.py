@@ -11,7 +11,11 @@ from matplotlib.figure import Figure
 
 
 def export_loss_curve(
-    history: Sequence[Mapping[str, Any]], run_dir: Path, *, stage: Literal["xe", "scst"]
+    history: Sequence[Mapping[str, Any]],
+    run_dir: Path,
+    *,
+    stage: Literal["xe", "scst"],
+    method: str = "SCST",
 ) -> None:
     """Refresh the loss plot from all completed epochs, including resumed history."""
     if not history:
@@ -31,7 +35,7 @@ def export_loss_curve(
             )
             axes.set(title="XE loss", ylabel="Cross-entropy per non-padding token")
         else:
-            axes.set(title="SCST training loss", ylabel="REINFORCE loss per image")
+            axes.set(title=f"{method} training loss", ylabel="REINFORCE loss per image")
         axes.set_xlabel("Epoch")
         axes.set_xticks(epochs)
         axes.grid(alpha=0.3)
@@ -47,6 +51,7 @@ def export_reward_curve(
     *,
     reward_name: str,
     xe_validation_reward: float | None,
+    method: str = "SCST",
 ) -> None:
     """Plot held-out greedy reward against the fixed pre-SCST XE score."""
     if not history:
@@ -66,7 +71,7 @@ def export_reward_curve(
             axes.axhline(
                 xe_validation_reward, linestyle="--", color="tab:orange", label="XE (greedy)"
             )
-        axes.set(title="SCST validation reward", xlabel="Epoch", ylabel=reward_name)
+        axes.set(title=f"{method} validation reward", xlabel="Epoch", ylabel=reward_name)
         axes.set_xticks(epochs)
         axes.grid(alpha=0.3)
         axes.legend()

@@ -57,6 +57,12 @@ def test_checkpoint_protocol_rejects_scst_reward_mismatch_and_raw_stage() -> Non
     with pytest.raises(ValueError, match="reward/baseline/sampling"):
         cli._validate_checkpoint_scientific_protocol(changed, config)
 
+    no_baseline = dataclasses.replace(
+        config, scst=dataclasses.replace(config.scst, baseline="none")
+    )
+    with pytest.raises(ValueError, match="reward/baseline/sampling"):
+        cli._validate_checkpoint_scientific_protocol(checkpoint, no_baseline)
+
     old_cider = json.loads(json.dumps(checkpoint))
     old_cider["provenance"]["reward_protocol"] = {
         "name": "cider_d",

@@ -11,7 +11,7 @@ def reinforce_loss(
     action_log_probs: torch.Tensor,
     action_mask: torch.Tensor,
 ) -> torch.Tensor:
-    """Compute the SCST sequence loss using an explicit first-EOS mask."""
+    """Compute REINFORCE with a detached advantage and an explicit first-EOS mask."""
 
     if advantage.ndim != 1:
         raise ValueError("advantage must have shape [batch]")

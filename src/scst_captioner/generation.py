@@ -63,7 +63,7 @@ class GenerationOutput:
 
 @dataclass(frozen=True)
 class SCSTRollouts:
-    baseline: GenerationOutput
+    baseline: GenerationOutput | None
     sampled: GenerationOutput
 
 
@@ -297,21 +297,45 @@ def scst_rollouts(
     forbidden_token_ids: Sequence[int] = (),
     sample_model_mode: str = "eval",
     use_kv_cache: bool = True,
+    baseline: str = "greedy",
 ) -> SCSTRollouts:
-    """Generate an inference-mode baseline and a differentiable sample.
+    """Generate a differentiable sample and an optional inference-mode baseline.
 
     The caller's original module mode is restored. Frozen encoders are encoded
     once. A trainable encoder is encoded once for eval-mode sampling and twice
     when train-mode sampling is requested, because the two passes deliberately
     use different dropout modes.
+    With baseline='none', greedy generation is skipped and the baseline is None.
     """
 
     if sample_model_mode not in {"train", "eval"}:
         raise ValueError("sample_model_mode must be 'train' or 'eval'")
+    if baseline not in {"greedy", "none"}:
+        raise ValueError("baseline must be 'greedy' or 'none'")
     previous_mode = model.training
     try:
         model.eval()
         encoder_frozen = bool(getattr(model, "encoder_is_frozen", False))
+        if baseline == "none":
+            # Match SCST's sampling modes without generating a greedy caption.
+            if encoder_frozen:
+                with torch.no_grad():
+                    memory = model.encode_images(pixel_values)
+                if sample_model_mode == "train":
+                    model.train()
+            else:
+                model.train(sample_model_mode == "train")
+                memory = model.encode_images(pixel_values)
+            sampled = sample_decode(
+                model,
+                memory,
+                bos_token_id=bos_token_id,
+                eos_token_id=eos_token_id,
+                max_new_tokens=max_new_tokens,
+                forbidden_token_ids=forbidden_token_ids,
+                use_kv_cache=use_kv_cache,
+            )
+            return SCSTRollouts(baseline=None, sampled=sampled)
         if encoder_frozen:
             with torch.no_grad():
                 memory = model.encode_images(pixel_values)
