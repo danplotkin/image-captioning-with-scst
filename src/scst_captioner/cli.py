@@ -70,7 +70,7 @@ from scst_captioner.tokenization import (
     resolve_special_token_ids,
 )
 from scst_captioner.training import SCSTTrainer, XETrainer
-from scst_captioner.training.optimization import build_xe_optimizer
+from scst_captioner.training.optimization import build_scst_optimizer, build_xe_optimizer
 from scst_captioner.training.plots import export_loss_curve, export_reward_curve
 
 
@@ -192,6 +192,7 @@ def _normalized_checkpoint_config(stored_config: Any) -> Any:
     for section, defaults in {
         "model": {"encoder_trainable_blocks": None, "encoder_train_final_layer_norm": False},
         "xe": {"encoder_learning_rate": None},
+        "scst": {"encoder_learning_rate": None},
     }.items():
         if isinstance(stored_config.get(section), dict):
             stored_config[section] = {**defaults, **stored_config[section]}
@@ -776,10 +777,7 @@ def command_train_scst(args: argparse.Namespace) -> int:
             _validate_checkpoint_scientific_protocol(source_metadata, config)
         source_schema = source_metadata.get("schema_version", 0)
         del source_metadata
-    optimizer = torch.optim.Adam(
-        (parameter for parameter in model.parameters() if parameter.requires_grad),
-        lr=config.scst.learning_rate,
-    )
+    optimizer = build_scst_optimizer(model, config.scst)
     scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.scst.lr_decay)
     trainer = SCSTTrainer(
         model,

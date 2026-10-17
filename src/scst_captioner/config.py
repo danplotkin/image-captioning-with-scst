@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import math
 import tomllib
 import types
 from dataclasses import dataclass, field
@@ -58,6 +59,7 @@ class XEConfig:
 
 @dataclass(frozen=True)
 class SCSTConfig:
+    encoder_learning_rate: float | None = None
     epochs: int = 8
     batch_size: int = 12
     learning_rate: float = 5e-5
@@ -148,7 +150,16 @@ class ExperimentConfig:
             raise ValueError("xe gradient_clip_norm/patience must be positive")
         if self.scst.epochs < 1 or self.scst.batch_size < 1:
             raise ValueError("scst.epochs and scst.batch_size must be positive")
-        if self.scst.learning_rate <= 0 or not 0.0 < self.scst.lr_decay <= 1.0:
+        if self.scst.encoder_learning_rate is not None and (
+            not math.isfinite(self.scst.encoder_learning_rate)
+            or self.scst.encoder_learning_rate <= 0
+        ):
+            raise ValueError("scst.encoder_learning_rate must be positive and finite")
+        if (
+            not math.isfinite(self.scst.learning_rate)
+            or self.scst.learning_rate <= 0
+            or not 0.0 < self.scst.lr_decay <= 1.0
+        ):
             raise ValueError("scst learning_rate must be positive and lr_decay in (0, 1]")
         if self.scst.gradient_clip_norm <= 0:
             raise ValueError("scst.gradient_clip_norm must be positive")

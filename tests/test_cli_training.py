@@ -197,6 +197,9 @@ def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
             for key in ("init_checkpoint", "encoder_learning_rate"):
                 old_checkpoint["config"]["xe"].pop(key)
             save_checkpoint(old_checkpoint, directory / "epoch1.pt")
+        old_checkpoint = load_checkpoint_file(directory / "epoch1.pt")
+        old_checkpoint["config"]["scst"].pop("encoder_learning_rate")
+        save_checkpoint(old_checkpoint, directory / "epoch1.pt")
         args.resume = str(directory / "epoch1.pt")
         args.output_dir = str(tmp_path / f"{stage}-resumed")
         assert command(args) == 0
@@ -258,4 +261,41 @@ def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
     assert resumed["progress"] == fine["progress"]
     assert resumed["training_state"]["history"] == fine["training_state"]["history"]
     for name, tensor in fine["model_state"].items():
+        assert torch.equal(tensor, resumed["model_state"][name]), name
+
+    # Both RL methods fine-tune the encoder with separate rates and resume exactly.
+    config = dataclasses.replace(
+        config,
+        scst=dataclasses.replace(config.scst, learning_rate=1e-5, encoder_learning_rate=1e-6),
+    )
+    args = argparse.Namespace(
+        config="fixture.toml",
+        output_dir=str(tmp_path / "rl-fine"),
+        resume=None,
+        overwrite=False,
+        xe_checkpoint=str(tmp_path / "fine" / "best.pt"),
+        allow_unverified_legacy_xe=False,
+    )
+    parent = load_checkpoint_file(args.xe_checkpoint)
+    assert cli.command_train_scst(args) == 0
+    trained = load_checkpoint_file(tmp_path / "rl-fine" / "last.pt")
+    groups = trained["optimizer_state"]["param_groups"]
+    assert [g["lr"] for g in groups] == pytest.approx(
+        [1e-5 * config.scst.lr_decay**2, 1e-6 * config.scst.lr_decay**2]
+    )
+    assert torch.equal(parent["model_state"][embedding_key], trained["model_state"][embedding_key])
+    assert not torch.equal(parent["model_state"][block_key], trained["model_state"][block_key])
+    args.resume = str(tmp_path / "rl-fine" / "epoch1.pt")
+    args.output_dir = str(tmp_path / "rl-fine-resumed")
+    assert cli.command_train_scst(args) == 0
+    resumed = load_checkpoint_file(Path(args.output_dir) / "last.pt")
+    assert resumed["training_state"]["history"] == trained["training_state"]["history"]
+    assert resumed["scheduler_state"] == trained["scheduler_state"]
+    assert resumed["optimizer_state"]["param_groups"] == groups
+    for key, state in trained["optimizer_state"]["state"].items():
+        for name, value in state.items():
+            torch.testing.assert_close(
+                value, resumed["optimizer_state"]["state"][key][name], rtol=0, atol=0
+            )
+    for name, tensor in trained["model_state"].items():
         assert torch.equal(tensor, resumed["model_state"][name]), name

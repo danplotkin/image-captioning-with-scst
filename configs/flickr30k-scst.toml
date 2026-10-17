@@ -41,8 +41,9 @@ patience = 2
 
 [scst]
 epochs = 15
-batch_size = 12
-learning_rate = 0.00005
+batch_size = 16
+learning_rate = 0.00001
+encoder_learning_rate = 0.000001
 lr_decay = 0.85
 gradient_clip_norm = 1.0
 reward = "cider_d"

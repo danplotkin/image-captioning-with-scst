@@ -129,3 +129,62 @@ def test_existing_and_finetune_configs():
                 encoder_trainable_blocks=2,
             ),
         ).validate()
+
+
+@pytest.mark.parametrize("field", ["learning_rate", "encoder_learning_rate"])
+@pytest.mark.parametrize("rate", [0.0, -1e-6, float("nan"), float("inf")])
+def test_invalid_rl_learning_rates(field, rate):
+    config = ExperimentConfig()
+    with pytest.raises(ValueError, match="scst"):
+        dataclasses.replace(
+            config, scst=dataclasses.replace(config.scst, **{field: rate})
+        ).validate()
+
+
+def test_rl_optimizer_groups_updates_and_decay():
+    from scst_captioner.training.optimization import build_scst_optimizer
+
+    configs = [load_config(f"configs/flickr30k-{name}.toml") for name in ("reinforce", "scst")]
+    assert dataclasses.replace(configs[0].scst, baseline="greedy") == configs[1].scst
+    for config in configs:
+        assert config.model.encoder_trainable_blocks == 4
+        assert config.scst.learning_rate == 1e-5
+        assert config.scst.encoder_learning_rate == 1e-6
+        model = make_model()
+        optimizer = build_scst_optimizer(model, config.scst)
+        encoder_ids = {id(p) for p in model.backbone.parameters()}
+        grouped = [id(p) for group in optimizer.param_groups for p in group["params"]]
+        assert len(grouped) == len(set(grouped))
+        assert set(grouped) == {id(p) for p in model.parameters() if p.requires_grad}
+        assert all(id(p) not in encoder_ids for p in optimizer.param_groups[0]["params"])
+        assert all(id(p) in encoder_ids for p in optimizer.param_groups[1]["params"])
+        before = {name: p.detach().clone() for name, p in model.named_parameters()}
+        for p in model.parameters():
+            if p.requires_grad:
+                p.grad = torch.ones_like(p)
+        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.scst.lr_decay)
+        optimizer.step()
+        for name, p in model.named_parameters():
+            rate = (1e-6 if id(p) in encoder_ids else 1e-5) if p.requires_grad else 0.0
+            torch.testing.assert_close(p, before[name] - rate, rtol=0, atol=1e-7)
+        scheduler.step()
+        assert [g["lr"] for g in optimizer.param_groups] == pytest.approx([8.5e-6, 8.5e-7])
+        legacy = build_scst_optimizer(model, ExperimentConfig().scst)
+        assert len(legacy.param_groups) == 1
+        frozen = build_scst_optimizer(make_model(0, False), config.scst)
+        assert len(frozen.param_groups) == 1
+        assert frozen.param_groups[0]["lr"] == 1e-5
+
+
+def test_old_rl_config_compatibility_and_rate_changes_rejected():
+    config = ExperimentConfig()
+    old = config.to_dict()
+    del old["scst"]["encoder_learning_rate"]
+    checkpoint = {"stage": "scst", "config": old}
+    _validate_checkpoint_config(checkpoint, config, full_config=True)
+    assert "encoder_learning_rate" not in old["scst"]
+    changed = dataclasses.replace(
+        config, scst=dataclasses.replace(config.scst, encoder_learning_rate=1e-6)
+    )
+    with pytest.raises(ValueError, match="configuration"):
+        _validate_checkpoint_config(checkpoint, changed, full_config=True)

@@ -409,6 +409,14 @@ methods still evaluate greedy captions on validation and select the best
 checkpoint by validation reward. Their training losses have different meanings;
 compare validation rewards and caption metrics rather than raw loss magnitudes.
 
+RL optionally accepts `scst.encoder_learning_rate` for trainable encoder parameters;
+`scst.learning_rate` then controls the decoder and output head. Both rates use the
+same exponential decay. Omitting the encoder rate preserves the original single
+Adam parameter group and shared learning rate. The paired Flickr30k configs use
+`1e-6` for the encoder and `1e-5` for the decoder/head as starting settings to evaluate.
+Exact `--resume` requires the original rates and parameter groups; start from an
+XE checkpoint for a new experiment with different rates.
+
 The paired Flickr30k configs retain the fine-tuned model's last four trainable ViT
 blocks and final LayerNorm. They match the fine-tuned XE parent's saved model,
 data, and XE protocol, and differ only in the RL baseline. Start each run from
