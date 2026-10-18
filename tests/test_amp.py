@@ -191,3 +191,44 @@ def test_amp_finite_gradients_with_overflowing_norm_fail_before_update(stage: st
     assert trainer.global_step == 0
     assert trainer.scheduler.last_epoch == initial_scheduler_epoch
     assert trainer.optimizer.param_groups[0]["lr"] == pytest.approx(0.01)
+
+
+@pytest.mark.parametrize("freeze_encoder", [True, False])
+def test_scst_amp_keeps_gradients_for_every_trainable_parameter(freeze_encoder):
+    from test_model import TinyBackbone, tiny_config
+
+    from scst_captioner.model import CPTRCaptioner
+
+    torch.manual_seed(5)
+    model = CPTRCaptioner(
+        tiny_config(freeze_encoder=freeze_encoder),
+        vocab_size=9,
+        pad_token_id=0,
+        backbone=TinyBackbone(),
+    )
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    trainer = SCSTTrainer(
+        model,
+        optimizer,
+        tokenizer=TinyTokenizer(),
+        reward=UnitAdvantageReward(),
+        device=torch.device("cpu"),
+        max_new_tokens=3,
+        amp=False,
+    )
+    trainer.amp_enabled = True
+    trainer.scaler = torch.amp.GradScaler("cpu", init_scale=1.0)
+    trainer.train_epoch(
+        [
+            {
+                "pixel_values": torch.ones(1, 3, 2, 2),
+                "image_ids": ["image.jpg"],
+                "references": [["word"]],
+            }
+        ]
+    )
+    for name, parameter in model.named_parameters():
+        if parameter.requires_grad:
+            assert parameter.grad is not None, name
+            assert torch.isfinite(parameter.grad).all(), name
+            assert parameter in optimizer.state, name

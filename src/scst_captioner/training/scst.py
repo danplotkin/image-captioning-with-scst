@@ -139,8 +139,14 @@ class PolicyGradientTrainer:
                 raise ValueError("Policy-gradient batches must contain unique image IDs")
 
             self.optimizer.zero_grad(set_to_none=True)
+            # The no-grad greedy rollout must not seed autocast's weight cache
+            # with detached casts reused by the differentiable sampled rollout.
+            # This is separate from the autoregressive attention KV cache.
             with torch.autocast(
-                device_type=self.device.type, dtype=torch.float16, enabled=self.amp_enabled
+                device_type=self.device.type,
+                dtype=torch.float16,
+                enabled=self.amp_enabled,
+                cache_enabled=False,
             ):
                 rollouts = scst_rollouts(
                     self.model,

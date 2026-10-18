@@ -64,6 +64,8 @@ class SCSTConfig:
     batch_size: int = 12
     learning_rate: float = 5e-5
     lr_decay: float = 0.85
+    lr_schedule: Literal["exponential", "constant"] = "exponential"
+    resume_use_config_lrs: bool = False
     gradient_clip_norm: float = 1.0
     reward: Literal["nltk_meteor", "cider_d"] = "cider_d"
     baseline: Literal["greedy", "none"] = "greedy"
@@ -163,6 +165,10 @@ class ExperimentConfig:
             raise ValueError("scst learning_rate must be positive and lr_decay in (0, 1]")
         if self.scst.gradient_clip_norm <= 0:
             raise ValueError("scst.gradient_clip_norm must be positive")
+        if self.scst.lr_schedule not in {"exponential", "constant"}:
+            raise ValueError("scst.lr_schedule must be 'exponential' or 'constant'")
+        if self.scst.resume_use_config_lrs and self.scst.lr_schedule != "constant":
+            raise ValueError("scst.resume_use_config_lrs requires a constant lr_schedule")
         if self.scst.reward not in {"nltk_meteor", "cider_d"}:
             raise ValueError("scst.reward must be 'nltk_meteor' or 'cider_d'")
         if self.scst.baseline not in {"greedy", "none"}:

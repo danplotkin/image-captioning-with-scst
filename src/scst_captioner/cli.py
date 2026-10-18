@@ -192,7 +192,11 @@ def _normalized_checkpoint_config(stored_config: Any) -> Any:
     for section, defaults in {
         "model": {"encoder_trainable_blocks": None, "encoder_train_final_layer_norm": False},
         "xe": {"encoder_learning_rate": None},
-        "scst": {"encoder_learning_rate": None},
+        "scst": {
+            "encoder_learning_rate": None,
+            "lr_schedule": "exponential",
+            "resume_use_config_lrs": False,
+        },
     }.items():
         if isinstance(stored_config.get(section), dict):
             stored_config[section] = {**defaults, **stored_config[section]}
@@ -353,17 +357,57 @@ def _resume_if_requested(
 ) -> tuple[int, int, dict[str, Any] | None]:
     if path is None:
         return 1, 0, None
+    requested_lrs = [group["lr"] for group in optimizer.param_groups]
     checkpoint = load_model_checkpoint(model, path, map_location="cpu")
     if checkpoint.get("legacy") or checkpoint.get("unverified_legacy"):
         raise ValueError("A raw legacy state dict can initialize training but cannot resume it")
+    validation_config = config
+    stored_rl = checkpoint.get("config", {}).get("scst", {})
+    stored_epochs = checkpoint.get("config", {}).get("scst", {}).get("epochs")
+    if (
+        expected_stage == "scst"
+        and isinstance(stored_epochs, int)
+        and config.scst.epochs >= stored_epochs
+    ):
+        # ExponentialLR does not depend on the planned epoch count. Allow extending
+        # RL training while validating every update/protocol setting unchanged.
+        validation_config = dataclasses.replace(
+            config, scst=dataclasses.replace(config.scst, epochs=stored_epochs)
+        )
+    if expected_stage == "scst" and config.scst.lr_schedule == "constant":
+        # Explicit opt-in: freeze checkpoint LRs, without resetting Adam or
+        # allowing changes to any other optimization/scientific setting.
+        stored_schedule = (
+            checkpoint.get("config", {}).get("scst", {}).get("lr_schedule", "exponential")
+        )
+        validation_config = dataclasses.replace(
+            validation_config,
+            scst=dataclasses.replace(validation_config.scst, lr_schedule=stored_schedule),
+        )
+    if expected_stage == "scst" and config.scst.resume_use_config_lrs:
+        if config.scst.lr_schedule != "constant":
+            raise ValueError("Resume LR override requires a constant schedule")
+        if (stored_rl.get("encoder_learning_rate") is None) != (
+            config.scst.encoder_learning_rate is None
+        ):
+            raise ValueError("Resume LR override cannot change optimizer parameter groups")
+        validation_config = dataclasses.replace(
+            validation_config,
+            scst=dataclasses.replace(
+                validation_config.scst,
+                learning_rate=stored_rl.get("learning_rate"),
+                encoder_learning_rate=stored_rl.get("encoder_learning_rate"),
+                resume_use_config_lrs=stored_rl.get("resume_use_config_lrs", False),
+            ),
+        )
     _validate_checkpoint_config(
         checkpoint,
-        config,
+        validation_config,
         expected_stage=expected_stage,
         full_config=True,
     )
     _validate_checkpoint_data(checkpoint, config, manifest)
-    _validate_checkpoint_scientific_protocol(checkpoint, config)
+    _validate_checkpoint_scientific_protocol(checkpoint, validation_config)
     required_resume_keys = {
         "optimizer_state",
         "scheduler_state",
@@ -385,6 +429,21 @@ def _resume_if_requested(
         scaler=scaler,
         strict=True,
     )
+    if expected_stage == "scst" and config.scst.lr_schedule == "constant":
+        # Restore first: optimizer owns the current LRs, and the saved scheduler
+        # owns its counters. Override gamma afterwards so loading cannot undo it.
+        scheduler.gamma = 1.0
+        if config.scst.resume_use_config_lrs:
+            for group, lr in zip(optimizer.param_groups, requested_lrs, strict=True):
+                group["lr"] = lr
+                group["initial_lr"] = lr
+            scheduler.base_lrs = list(requested_lrs)
+            scheduler._last_lr = list(requested_lrs)
+        print(
+            "Resumed with constant learning rates: "
+            + ", ".join(f"{group['lr']:.10g}" for group in optimizer.param_groups),
+            flush=True,
+        )
     if "rng_state" in checkpoint:
         restore_rng_state(checkpoint["rng_state"])
     progress = checkpoint.get("progress", {})
@@ -778,7 +837,9 @@ def command_train_scst(args: argparse.Namespace) -> int:
         source_schema = source_metadata.get("schema_version", 0)
         del source_metadata
     optimizer = build_scst_optimizer(model, config.scst)
-    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=config.scst.lr_decay)
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(
+        optimizer, gamma=1.0 if config.scst.lr_schedule == "constant" else config.scst.lr_decay
+    )
     trainer = SCSTTrainer(
         model,
         optimizer,
@@ -984,6 +1045,7 @@ def _generate_records(
                     output = beam_decode(
                         model,
                         memory,
+                        use_kv_cache=config.runtime.use_kv_cache,
                         bos_token_id=special.bos,
                         eos_token_id=special.eos,
                         max_new_tokens=config.model.max_seq_length,
@@ -1122,6 +1184,7 @@ def _evaluate_checkpoint(
         "encoder_name": config.model.encoder_name,
         "encoder_revision": config.model.encoder_revision,
         "special_token_policy": "forbid_all_special_except_eos",
+        "use_kv_cache": config.runtime.use_kv_cache,
         "inference_precision": (
             "cuda_amp_fp16" if config.runtime.amp and device.type == "cuda" else "fp32"
         ),
@@ -1266,6 +1329,7 @@ def command_evaluate_matrix(args: argparse.Namespace) -> int:
         "image_processor_revision": config.model.encoder_revision,
         "max_new_tokens": config.model.max_seq_length,
         "special_token_policy": "forbid_all_special_except_eos",
+        "use_kv_cache": config.runtime.use_kv_cache,
         "inference_precision": (
             "cuda_amp_fp16" if config.runtime.amp and device.type == "cuda" else "fp32"
         ),
@@ -1329,6 +1393,7 @@ def command_caption(args: argparse.Namespace) -> int:
                 output = beam_decode(
                     model,
                     memory,
+                    use_kv_cache=config.runtime.use_kv_cache,
                     bos_token_id=special.bos,
                     eos_token_id=special.eos,
                     max_new_tokens=config.model.max_seq_length,

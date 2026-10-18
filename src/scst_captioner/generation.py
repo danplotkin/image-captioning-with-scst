@@ -200,6 +200,7 @@ class _Beam:
     tokens: torch.Tensor
     raw_log_prob: float
     complete: bool
+    cache: Any = None
 
     def normalized_score(self, alpha: float) -> float:
         return self.raw_log_prob / length_penalty(self.tokens.numel() - 1, alpha)
@@ -215,10 +216,11 @@ def _beam_decode_one(
     beam_size: int,
     length_penalty_alpha: float,
     forbidden_token_ids: Sequence[int],
+    use_kv_cache: bool,
 ) -> _Beam:
     device = memory.device
     initial = torch.tensor([bos_token_id], dtype=torch.long, device=device)
-    beams = [_Beam(initial, 0.0, False)]
+    beams = [_Beam(initial, 0.0, False, _decode_cache(model, memory, use_kv_cache))]
 
     for _ in range(max_new_tokens):
         candidates: list[_Beam] = []
@@ -226,7 +228,7 @@ def _beam_decode_one(
             if beam.complete:
                 candidates.append(beam)
                 continue
-            logits = model.predict_next_token(beam.tokens[None, :], memory)
+            logits, cache = _next_logits(model, beam.tokens[None, :], memory, beam.cache)
             log_probs = _mask_logits(logits, forbidden_token_ids).log_softmax(dim=-1)
             values, indices = log_probs.topk(min(beam_size, log_probs.size(-1)), dim=-1)
             for value, index in zip(values[0], indices[0], strict=True):
@@ -236,6 +238,8 @@ def _beam_decode_one(
                         torch.cat((beam.tokens, index.reshape(1))),
                         beam.raw_log_prob + float(value.item()),
                         token_id == eos_token_id,
+                        # Siblings share an immutable prefix; decode_step returns new state.
+                        cache,
                     )
                 )
         beams = sorted(
@@ -258,6 +262,7 @@ def beam_decode(
     beam_size: int,
     length_penalty_alpha: float = 0.0,
     forbidden_token_ids: Sequence[int] = (),
+    use_kv_cache: bool = True,
 ) -> GenerationOutput:
     if max_new_tokens < 1 or beam_size < 1:
         raise ValueError("max_new_tokens and beam_size must be positive")
@@ -271,6 +276,7 @@ def beam_decode(
             beam_size=beam_size,
             length_penalty_alpha=length_penalty_alpha,
             forbidden_token_ids=forbidden_token_ids,
+            use_kv_cache=use_kv_cache,
         )
         for index in range(memory.size(0))
     ]

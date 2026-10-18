@@ -158,13 +158,17 @@ def _resumable_checkpoint(tmp_path: Path, stage: str):
     return config, manifest, checkpoint
 
 
-@pytest.mark.parametrize("stage", ["xe", "scst"])
+@pytest.mark.parametrize("stage, extra_epochs", [("xe", 0), ("scst", 0), ("scst", 15)])
 def test_resume_accepts_current_protocol_and_restores_training_state(
-    tmp_path: Path, stage: str
+    tmp_path: Path, stage: str, extra_epochs: int
 ) -> None:
     config, manifest, checkpoint = _resumable_checkpoint(tmp_path, stage)
     path = tmp_path / "resume.pt"
     save_checkpoint(checkpoint, path)
+    if extra_epochs:
+        config = dataclasses.replace(
+            config, scst=dataclasses.replace(config.scst, epochs=config.scst.epochs + extra_epochs)
+        )
     model = nn.Linear(2, 2)
     optimizer = torch.optim.Adam(model.parameters(), lr=1.0)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1)
@@ -184,6 +188,33 @@ def test_resume_accepts_current_protocol_and_restores_training_state(
     assert optimizer.state
     assert optimizer.param_groups[0]["lr"] == pytest.approx(0.001)
     assert scheduler.last_epoch == 1
+
+
+@pytest.mark.parametrize("change", [{"baseline": "none"}, {"learning_rate": 0.1}, {"epochs": 1}])
+@pytest.mark.parametrize("schedule", ["exponential", "constant"])
+def test_rl_epoch_extension_keeps_resume_settings_strict(
+    tmp_path: Path, change: dict, schedule: str
+) -> None:
+    config, manifest, checkpoint = _resumable_checkpoint(tmp_path, "scst")
+    path = tmp_path / "resume.pt"
+    save_checkpoint(checkpoint, path)
+    changes = {"epochs": config.scst.epochs + 15, "lr_schedule": schedule, **change}
+    config = dataclasses.replace(config, scst=dataclasses.replace(config.scst, **changes))
+    model = nn.Linear(2, 2)
+    optimizer = torch.optim.Adam(model.parameters(), lr=1.0)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1)
+    with pytest.raises(ValueError, match="configuration does not match"):
+        cli._resume_if_requested(
+            str(path),
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            scaler=torch.amp.GradScaler("cuda", enabled=False),
+            config=config,
+            manifest=manifest,
+            expected_stage="scst",
+        )
+    assert not optimizer.state
 
 
 @pytest.mark.parametrize(
@@ -326,3 +357,86 @@ def test_matrix_command_preflights_lineage_and_writes_four_complete_cells(
             assert cell["training_objective"]["mean"] == 0.5
             artifact = output_dir / cell["prediction_artifact"]["path"]
             assert sha256_file(artifact) == cell["prediction_artifact"]["sha256"]
+
+
+@pytest.mark.parametrize("legacy_config", [False, True])
+@pytest.mark.parametrize("override_lr", [False, True])
+def test_constant_resume_preserves_adam_and_checkpoint_lrs(
+    tmp_path: Path, legacy_config: bool, override_lr: bool
+) -> None:
+    config, manifest, checkpoint = _resumable_checkpoint(tmp_path, "scst")
+    if legacy_config:
+        checkpoint["config"]["scst"].pop("lr_schedule")
+        checkpoint["config"]["scst"].pop("resume_use_config_lrs")
+    path = tmp_path / "resume.pt"
+    save_checkpoint(checkpoint, path)
+    config = dataclasses.replace(
+        config,
+        scst=dataclasses.replace(
+            config.scst,
+            epochs=30,
+            lr_schedule="constant",
+            learning_rate=2e-6 if override_lr else config.scst.learning_rate,
+            resume_use_config_lrs=override_lr,
+        ),
+    )
+    model = nn.Linear(2, 2)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config.scst.learning_rate)
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=1.0)
+    scaler = torch.amp.GradScaler("cuda", enabled=False)
+    start, _, _ = cli._resume_if_requested(
+        str(path),
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        scaler=scaler,
+        config=config,
+        manifest=manifest,
+        expected_stage="scst",
+    )
+    assert start == 4
+    expected_lr = (
+        config.scst.learning_rate
+        if override_lr
+        else checkpoint["optimizer_state"]["param_groups"][0]["lr"]
+    )
+    assert optimizer.param_groups[0]["lr"] == expected_lr
+    assert scheduler.last_epoch == checkpoint["scheduler_state"]["last_epoch"]
+    assert scheduler.gamma == 1.0
+    assert scheduler.get_last_lr() == [expected_lr]
+    for key, state in checkpoint["optimizer_state"]["state"].items():
+        for name, value in state.items():
+            torch.testing.assert_close(optimizer.state_dict()["state"][key][name], value)
+    for _ in range(15):
+        optimizer.step()
+        scheduler.step()
+    assert optimizer.param_groups[0]["lr"] == expected_lr
+    # A subsequent resume must also keep the constant schedule and counters.
+    saved = build_checkpoint(
+        model,
+        stage="scst",
+        config=config.to_dict(),
+        epoch=18,
+        global_step=22,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        scaler=scaler,
+    )
+    saved["provenance"] = checkpoint["provenance"]
+    save_checkpoint(saved, path)
+    scheduler.gamma = 0.85
+    start, _, _ = cli._resume_if_requested(
+        str(path),
+        model=model,
+        optimizer=optimizer,
+        scheduler=scheduler,
+        scaler=scaler,
+        config=config,
+        manifest=manifest,
+        expected_stage="scst",
+    )
+    assert start == 19
+    optimizer.step()
+    scheduler.step()
+    assert optimizer.param_groups[0]["lr"] == expected_lr
+    assert scheduler.gamma == 1.0

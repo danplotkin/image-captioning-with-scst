@@ -1,5 +1,9 @@
 # Research alignment and claim boundaries
 
+The Flickr30k experiment reset and SCST training fix are documented in the
+[README](../README.md) and [AMP audit](SCST_AMP_AUDIT.md). Both historical RL runs
+and all evaluation outputs have been removed; a fresh comparison is pending.
+
 ## Research basis
 
 The implementation is informed by, but does not exactly reproduce, the
@@ -29,7 +33,7 @@ publication when relevant.
 
 | Research element | Project alignment | Project deviation/decision |
 |---|---|---|
-| Transformer caption decoder | Uses causal self-attention over caption tokens and cross-attention to visual memory. | Uses PyTorch's standard `TransformerDecoder` and a DistilBERT tokenizer rather than claiming an exact paper implementation. |
+| Transformer caption decoder | Uses causal self-attention over caption tokens and cross-attention to visual memory. | Uses a custom decoder stack built from PyTorch attention and linear modules and a DistilBERT tokenizer rather than claiming an exact paper implementation. |
 | CPTR-style full-Transformer captioning | Uses a ViT representation as memory for a Transformer language decoder. | Uses a pretrained Hugging Face ViT and freezes it by default. Model construction, data, and training recipe differ from an exact CPTR reproduction. |
 | REINFORCE sequence objective | Uses sampled sequence log probability multiplied by a sequence-level advantage with the correct negative sign. | Uses an explicit first-EOS action mask and implementation-specific batching. |
 | Self-critical baseline | Uses reward of the model's own greedy test-time output as the baseline. | The historical notebook incorrectly left dropout active. The corrected protocol runs greedy baseline and sampled policy in eval mode while retaining autograd for sampled log probabilities. |
