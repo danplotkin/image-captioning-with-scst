@@ -91,7 +91,7 @@ quality measures, and negative SCST loss is not itself an error.
 | --- | --- | --- |
 | Frozen-encoder XE | 10 completed epochs; best validation loss at epoch 7 | AdamW, warmup + cosine schedule; see original Flickr30k config |
 | Partial-encoder XE fine-tuning | 4 completed epochs of a maximum 5; best at epoch 2 | Decoder/head LR `1e-5`, encoder LR `1e-6`, AdamW, 10% warmup + cosine, patience 2 |
-| Fresh REINFORCE and SCST | Maximum 30 epochs each from the same fine-tuned XE parent | Adam, batch size 16, decoder/head LR `1e-5`, encoder LR `1e-6`, exponential decay `0.85` per epoch; validation patience 4 |
+| Fresh REINFORCE and SCST | Maximum 30 epochs each from the same fine-tuned XE parent | Adam, batch size 16, decoder/head LR `1e-5`, encoder LR `1e-6`, exponential decay `0.95` per epoch; validation patience 4 |
 
 Use one config per method: `configs/flickr30k-reinforce.toml` and
 `configs/flickr30k-scst.toml`. They differ only in the training baseline:
