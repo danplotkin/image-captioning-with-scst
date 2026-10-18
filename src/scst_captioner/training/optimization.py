@@ -67,15 +67,17 @@ def build_xe_optimizer(model: nn.Module, config: XEConfig) -> torch.optim.AdamW:
     return torch.optim.AdamW(groups, lr=config.learning_rate, weight_decay=config.weight_decay)
 
 
-def build_scst_optimizer(model: nn.Module, config: SCSTConfig) -> torch.optim.Adam:
-    """Build Adam for either RL baseline, optionally using a separate encoder LR."""
+def build_scst_optimizer(model: nn.Module, config: SCSTConfig) -> torch.optim.AdamW:
+    """Build AdamW for either RL baseline with explicit decoupled weight decay."""
     parameters = [p for p in model.parameters() if p.requires_grad]
     if config.encoder_learning_rate is None:
-        return torch.optim.Adam(parameters, lr=config.learning_rate)
+        return torch.optim.AdamW(
+            parameters, lr=config.learning_rate, weight_decay=config.weight_decay
+        )
     encoder_ids = {id(p) for p in model.backbone.parameters()}
     groups = []
     for is_encoder, rate in ((False, config.learning_rate), (True, config.encoder_learning_rate)):
         selected = [p for p in parameters if (id(p) in encoder_ids) == is_encoder]
         if selected:
             groups.append({"params": selected, "lr": rate})
-    return torch.optim.Adam(groups, lr=config.learning_rate)
+    return torch.optim.AdamW(groups, lr=config.learning_rate, weight_decay=config.weight_decay)

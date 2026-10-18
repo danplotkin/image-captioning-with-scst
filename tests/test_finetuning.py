@@ -152,6 +152,9 @@ def test_rl_optimizer_groups_updates_and_decay():
         assert config.scst.encoder_learning_rate == 1e-6
         model = make_model()
         optimizer = build_scst_optimizer(model, config.scst)
+        assert type(optimizer) is torch.optim.AdamW
+        assert config.scst.weight_decay == 0.01
+        assert all(g["weight_decay"] == 0.01 for g in optimizer.param_groups)
         encoder_ids = {id(p) for p in model.backbone.parameters()}
         grouped = [id(p) for group in optimizer.param_groups for p in group["params"]]
         assert len(grouped) == len(set(grouped))
@@ -166,7 +169,8 @@ def test_rl_optimizer_groups_updates_and_decay():
         optimizer.step()
         for name, p in model.named_parameters():
             rate = (1e-6 if id(p) in encoder_ids else 1e-5) if p.requires_grad else 0.0
-            torch.testing.assert_close(p, before[name] - rate, rtol=0, atol=1e-7)
+            expected = before[name] * (1 - rate * config.scst.weight_decay) - rate
+            torch.testing.assert_close(p, expected, rtol=0, atol=1e-7)
         scheduler.step()
         assert [g["lr"] for g in optimizer.param_groups] == pytest.approx([9.5e-6, 9.5e-7])
         legacy = build_scst_optimizer(model, ExperimentConfig().scst)

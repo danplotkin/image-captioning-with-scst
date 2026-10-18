@@ -64,6 +64,7 @@ class SCSTConfig:
     epochs: int = 8
     batch_size: int = 12
     learning_rate: float = 5e-5
+    weight_decay: float = 0.0
     lr_decay: float = 0.85
     lr_schedule: Literal["exponential", "constant"] = "exponential"
     resume_use_config_lrs: bool = False
@@ -153,6 +154,8 @@ class ExperimentConfig:
             raise ValueError("xe gradient_clip_norm/patience must be positive")
         if self.scst.epochs < 1 or self.scst.batch_size < 1:
             raise ValueError("scst.epochs and scst.batch_size must be positive")
+        if not math.isfinite(self.scst.weight_decay) or self.scst.weight_decay < 0:
+            raise ValueError("scst.weight_decay must be non-negative and finite")
         if self.scst.encoder_learning_rate is not None and (
             not math.isfinite(self.scst.encoder_learning_rate)
             or self.scst.encoder_learning_rate <= 0

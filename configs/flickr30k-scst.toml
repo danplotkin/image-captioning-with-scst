@@ -40,6 +40,7 @@ gradient_clip_norm = 1.0
 patience = 2
 
 [scst]
+weight_decay = 0.01
 epochs = 30
 patience = 4
 batch_size = 16
@@ -63,4 +64,4 @@ seed = 42
 deterministic = false
 device = "auto"
 amp = true
-output_dir = "artifacts/flickr30k-policy-gradient"
+output_dir = "artifacts/flickr30k-policy-gradient-adamw"

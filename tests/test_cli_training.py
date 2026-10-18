@@ -267,7 +267,9 @@ def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
     # Both RL methods fine-tune the encoder with separate rates and resume exactly.
     config = dataclasses.replace(
         config,
-        scst=dataclasses.replace(config.scst, learning_rate=1e-5, encoder_learning_rate=1e-6),
+        scst=dataclasses.replace(
+            config.scst, learning_rate=1e-5, encoder_learning_rate=1e-6, weight_decay=0.01
+        ),
     )
     args = argparse.Namespace(
         config="fixture.toml",
@@ -281,6 +283,7 @@ def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
     assert cli.command_train_scst(args) == 0
     trained = load_checkpoint_file(tmp_path / "rl-fine" / "last.pt")
     groups = trained["optimizer_state"]["param_groups"]
+    assert [g["weight_decay"] for g in groups] == [0.01, 0.01]
     assert [g["lr"] for g in groups] == pytest.approx(
         [1e-5 * config.scst.lr_decay**2, 1e-6 * config.scst.lr_decay**2]
     )

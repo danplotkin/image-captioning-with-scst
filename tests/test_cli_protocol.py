@@ -440,3 +440,46 @@ def test_constant_resume_preserves_adam_and_checkpoint_lrs(
     scheduler.step()
     assert optimizer.param_groups[0]["lr"] == expected_lr
     assert scheduler.gamma == 1.0
+
+
+def test_old_adam_checkpoint_allows_inference_but_rejects_adamw_resume(tmp_path):
+    config, manifest, checkpoint = _resumable_checkpoint(tmp_path, "scst")
+    del checkpoint["config"]["scst"]["weight_decay"]
+    config = dataclasses.replace(config, scst=dataclasses.replace(config.scst, weight_decay=0.01))
+    cli._validate_checkpoint_scientific_protocol(checkpoint, config)
+    path = tmp_path / "old-adam.pt"
+    save_checkpoint(checkpoint, path)
+    model = nn.Linear(2, 2)
+    optimizer = cli.build_scst_optimizer(model, config.scst)
+    scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
+    with pytest.raises(ValueError, match="predates AdamW"):
+        cli._resume_if_requested(
+            str(path),
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            scaler=torch.amp.GradScaler("cuda", enabled=False),
+            config=config,
+            manifest=manifest,
+            expected_stage="scst",
+        )
+
+
+def test_resume_rejects_weight_decay_change(tmp_path):
+    config, manifest, checkpoint = _resumable_checkpoint(tmp_path, "scst")
+    config = dataclasses.replace(config, scst=dataclasses.replace(config.scst, weight_decay=0.01))
+    path = tmp_path / "different-decay.pt"
+    save_checkpoint(checkpoint, path)
+    model = nn.Linear(2, 2)
+    optimizer = cli.build_scst_optimizer(model, config.scst)
+    with pytest.raises(ValueError, match="configuration"):
+        cli._resume_if_requested(
+            str(path),
+            model=model,
+            optimizer=optimizer,
+            scheduler=torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95),
+            scaler=torch.amp.GradScaler("cuda", enabled=False),
+            config=config,
+            manifest=manifest,
+            expected_stage="scst",
+        )
