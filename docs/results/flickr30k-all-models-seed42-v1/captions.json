@@ -1,0 +1,859 @@
+{
+  "selection": {
+    "seed": 42,
+    "count": 12,
+    "split": "test",
+    "algorithm": "random.Random(seed).sample(sorted(split_ids), count)",
+    "split_manifest_sha256": "0433b48a9a5600c4ba6f24c70c502148a16bf5234d757aef3bde754cce5c021d",
+    "captions_file_sha256": "dd80880a09b69271e90e6249e0b875e132aba8de1be2f0efb6cf617b20c21f6d",
+    "image_ids": [
+      "45543081.jpg",
+      "2072331027.jpg",
+      "118865844.jpg",
+      "4814335297.jpg",
+      "2854959952.jpg",
+      "2750185692.jpg",
+      "2678668581.jpg",
+      "2268207503.jpg",
+      "4808471657.jpg",
+      "202174004.jpg",
+      "4687557453.jpg",
+      "4814332291.jpg"
+    ],
+    "image_sha256": {
+      "45543081.jpg": "4cc3b6702a2a7a8fc3a6ff9951d0edaaff9db6383db4aabfdcdeb16f238ce7ec",
+      "2072331027.jpg": "59edf25f92bd53adbfcffb1438e6eecedeb08d9905a164cbaf4483e99191e080",
+      "118865844.jpg": "590496c213320718477838d871fc1443c1fa08fe4449c1c1410191986d84853b",
+      "4814335297.jpg": "10891fb6c2b676c4da2fee5fc86af1d3428b03a793b200726837e0d34d01e499",
+      "2854959952.jpg": "74a2d45edface0587bea3736fc58c4764cb82c6b0dfcf20f5ae2ea202bbfc45f",
+      "2750185692.jpg": "b2550796e6ce248ca1ab717eb20a2dd0df603f132024830a1ab5a7ab8eb174ed",
+      "2678668581.jpg": "4b7e3ad82b751d722cb94bb7712b5545cbeb84809764629ba1f464173e76996a",
+      "2268207503.jpg": "7bdffc8a766c365dbbf7cf449accd76103c9c26f9738b32ac53835e61efe6d62",
+      "4808471657.jpg": "fdcd230c6e0fa6f0e8121afdc34e95bbe22428a8a439953aa6b3a3deae839b5c",
+      "202174004.jpg": "00cffe7329a5331e03d7f4d02141366e580880a65640aa887b98758cd921a1d2",
+      "4687557453.jpg": "b51f505dfa3cdc65b504feceebb73619d8209a03b5370271b200913a0d6aba17",
+      "4814332291.jpg": "7a334f7cda03ee2bba61c031599fee863e119d6ff4d024b80b17564de47aff91"
+    }
+  },
+  "mode": "checkpoint",
+  "sources": {
+    "xe": {
+      "checkpoint": "artifacts/flickr30k-xe-finetune-runpod/best.pt",
+      "sha256": "b5b037386cf963673c72ed79ef5e4f8ef95b240c9f3418c0a78622d6f1f1dfd6"
+    },
+    "reinforce": {
+      "checkpoint": "artifacts/flickr30k-policy-gradient/reinforce/best.pt",
+      "sha256": "0014ea45497f8a069f46930b28584e034028cf7f73847a1ec341c5735dcfe93f"
+    },
+    "scst": {
+      "checkpoint": "artifacts/flickr30k-policy-gradient/scst/best.pt",
+      "sha256": "64eb10f06673dbbfff3c0208a38fa33ccbfdc4f2713e6580bc7ce018c27d3f6b"
+    }
+  },
+  "generation_config": {
+    "xe": {
+      "model": {
+        "encoder_name": "google/vit-base-patch16-384",
+        "encoder_revision": "2960116e809e2fca84146dbb240289aee7db4827",
+        "tokenizer_name": "distilbert-base-uncased",
+        "tokenizer_revision": "12040accade4e8a0f71eabdb258fecc2e7e948be",
+        "max_seq_length": 80,
+        "d_model": 768,
+        "num_heads": 12,
+        "feedforward_dim": 1536,
+        "num_decoder_layers": 4,
+        "dropout": 0.1,
+        "activation": "relu",
+        "freeze_encoder": false,
+        "encoder_trainable_blocks": 4,
+        "encoder_train_final_layer_norm": true
+      },
+      "data": {
+        "images_dir": "data/flickr30k/kaggle/flickr30k_images/flickr30k_images",
+        "captions_file": "data/flickr30k/captions.csv",
+        "split_manifest": "data/splits/flickr30k.json",
+        "min_caption_words": 1,
+        "expected_references_per_image": 5,
+        "num_workers": 0,
+        "horizontal_flip_probability": 0.0,
+        "rotation_degrees": 10.0,
+        "color_jitter_probability": 0.3,
+        "brightness": 0.3,
+        "hue": 0.0
+      },
+      "xe": {
+        "init_checkpoint": "artifacts/flickr30k/xe/best.pt",
+        "encoder_learning_rate": 1e-06,
+        "epochs": 5,
+        "batch_size": 40,
+        "learning_rate": 1e-05,
+        "weight_decay": 0.01,
+        "warmup_ratio": 0.1,
+        "gradient_clip_norm": 1.0,
+        "patience": 2
+      },
+      "scst": {
+        "patience": 4,
+        "encoder_learning_rate": 1e-06,
+        "epochs": 30,
+        "batch_size": 16,
+        "learning_rate": 1e-05,
+        "lr_decay": 0.95,
+        "lr_schedule": "exponential",
+        "resume_use_config_lrs": false,
+        "gradient_clip_norm": 1.0,
+        "reward": "cider_d",
+        "baseline": "greedy",
+        "sample_model_mode": "eval"
+      },
+      "evaluation": {
+        "beam_size": 3,
+        "length_penalty_alpha": 0.7,
+        "include_spice": false,
+        "metrics_backend": "coco"
+      },
+      "runtime": {
+        "seed": 42,
+        "deterministic": false,
+        "device": "auto",
+        "amp": false,
+        "output_dir": "artifacts/flickr30k-policy-gradient",
+        "use_kv_cache": true
+      }
+    },
+    "reinforce": {
+      "model": {
+        "encoder_name": "google/vit-base-patch16-384",
+        "encoder_revision": "2960116e809e2fca84146dbb240289aee7db4827",
+        "tokenizer_name": "distilbert-base-uncased",
+        "tokenizer_revision": "12040accade4e8a0f71eabdb258fecc2e7e948be",
+        "max_seq_length": 80,
+        "d_model": 768,
+        "num_heads": 12,
+        "feedforward_dim": 1536,
+        "num_decoder_layers": 4,
+        "dropout": 0.1,
+        "activation": "relu",
+        "freeze_encoder": false,
+        "encoder_trainable_blocks": 4,
+        "encoder_train_final_layer_norm": true
+      },
+      "data": {
+        "images_dir": "data/flickr30k/kaggle/flickr30k_images/flickr30k_images",
+        "captions_file": "data/flickr30k/captions.csv",
+        "split_manifest": "data/splits/flickr30k.json",
+        "min_caption_words": 1,
+        "expected_references_per_image": 5,
+        "num_workers": 0,
+        "horizontal_flip_probability": 0.0,
+        "rotation_degrees": 10.0,
+        "color_jitter_probability": 0.3,
+        "brightness": 0.3,
+        "hue": 0.0
+      },
+      "xe": {
+        "init_checkpoint": "artifacts/flickr30k/xe/best.pt",
+        "encoder_learning_rate": 1e-06,
+        "epochs": 5,
+        "batch_size": 40,
+        "learning_rate": 1e-05,
+        "weight_decay": 0.01,
+        "warmup_ratio": 0.1,
+        "gradient_clip_norm": 1.0,
+        "patience": 2
+      },
+      "scst": {
+        "patience": 4,
+        "encoder_learning_rate": 1e-06,
+        "epochs": 30,
+        "batch_size": 16,
+        "learning_rate": 1e-05,
+        "lr_decay": 0.95,
+        "lr_schedule": "exponential",
+        "resume_use_config_lrs": false,
+        "gradient_clip_norm": 1.0,
+        "reward": "cider_d",
+        "baseline": "none",
+        "sample_model_mode": "eval"
+      },
+      "evaluation": {
+        "beam_size": 3,
+        "length_penalty_alpha": 0.7,
+        "include_spice": false,
+        "metrics_backend": "coco"
+      },
+      "runtime": {
+        "seed": 42,
+        "deterministic": false,
+        "device": "auto",
+        "amp": false,
+        "output_dir": "artifacts/flickr30k-policy-gradient",
+        "use_kv_cache": true
+      }
+    },
+    "scst": {
+      "model": {
+        "encoder_name": "google/vit-base-patch16-384",
+        "encoder_revision": "2960116e809e2fca84146dbb240289aee7db4827",
+        "tokenizer_name": "distilbert-base-uncased",
+        "tokenizer_revision": "12040accade4e8a0f71eabdb258fecc2e7e948be",
+        "max_seq_length": 80,
+        "d_model": 768,
+        "num_heads": 12,
+        "feedforward_dim": 1536,
+        "num_decoder_layers": 4,
+        "dropout": 0.1,
+        "activation": "relu",
+        "freeze_encoder": false,
+        "encoder_trainable_blocks": 4,
+        "encoder_train_final_layer_norm": true
+      },
+      "data": {
+        "images_dir": "data/flickr30k/kaggle/flickr30k_images/flickr30k_images",
+        "captions_file": "data/flickr30k/captions.csv",
+        "split_manifest": "data/splits/flickr30k.json",
+        "min_caption_words": 1,
+        "expected_references_per_image": 5,
+        "num_workers": 0,
+        "horizontal_flip_probability": 0.0,
+        "rotation_degrees": 10.0,
+        "color_jitter_probability": 0.3,
+        "brightness": 0.3,
+        "hue": 0.0
+      },
+      "xe": {
+        "init_checkpoint": "artifacts/flickr30k/xe/best.pt",
+        "encoder_learning_rate": 1e-06,
+        "epochs": 5,
+        "batch_size": 40,
+        "learning_rate": 1e-05,
+        "weight_decay": 0.01,
+        "warmup_ratio": 0.1,
+        "gradient_clip_norm": 1.0,
+        "patience": 2
+      },
+      "scst": {
+        "patience": 4,
+        "encoder_learning_rate": 1e-06,
+        "epochs": 30,
+        "batch_size": 16,
+        "learning_rate": 1e-05,
+        "lr_decay": 0.95,
+        "lr_schedule": "exponential",
+        "resume_use_config_lrs": false,
+        "gradient_clip_norm": 1.0,
+        "reward": "cider_d",
+        "baseline": "greedy",
+        "sample_model_mode": "eval"
+      },
+      "evaluation": {
+        "beam_size": 3,
+        "length_penalty_alpha": 0.7,
+        "include_spice": false,
+        "metrics_backend": "coco"
+      },
+      "runtime": {
+        "seed": 42,
+        "deterministic": false,
+        "device": "auto",
+        "amp": false,
+        "output_dir": "artifacts/flickr30k-policy-gradient",
+        "use_kv_cache": true
+      }
+    }
+  },
+  "device": "mps",
+  "batch_size": 2,
+  "references": {
+    "45543081.jpg": [
+      "Two men sitting on a cart being drawn by a horse down a cobblestone street.",
+      "Two young men riding on a very small horse-drawn wagon full of potatoes.",
+      "Two men are sitting in a horse drawn cart with potatoes in the back.",
+      "Two guys sitting on a car and horse with potatoes in the back.",
+      "Two men on a produce cart driven by a horse."
+    ],
+    "2072331027.jpg": [
+      "A Chinese + man and younger boy in some type of worship place worshiping.",
+      "A young boy and an old men involved in some type of ritual ceremony.",
+      "Old woman in yellow holding tissue over young boys head.",
+      "Two Indian men participating in a ceremony.",
+      "Young asian man paying his respects."
+    ],
+    "118865844.jpg": [
+      "A woman wearing a pink sweater and eyeglasses is wiping a wooden table with a pink sponge.",
+      "A woman in a pink sweater and an apron, cleaning a table with a sponge.",
+      "A lady with blond-hair and glasses works hard to clean up her table.",
+      "A woman in a pink sweater cleaning a dining table.",
+      "A woman in a pink shirt cleaning a wooden table."
+    ],
+    "4814335297.jpg": [
+      "A middle-aged man with a backpack playfully pretends to box with younger child who does not look phased.",
+      "A smiling man wearing a backpack holds his fists up in front of a boy in glasses.",
+      "An adult Asian male instructs a group of Asian children.",
+      "An Asian man in a black shirt making a fighting pose",
+      "A group of tourists is excited."
+    ],
+    "2854959952.jpg": [
+      "The two dogs, one of which is leaping in the air, are chasing a ball outdoors.",
+      "One dog leaps to catch a softball while another looks on.",
+      "Two small dogs pursuing a ball across a grassy field.",
+      "Two dogs play catch with a ball in a field.",
+      "Two dogs jump for a ball on a green field."
+    ],
+    "2750185692.jpg": [
+      "Young boy smiles as an extremely large kelly green fly perches on his nose.",
+      "A green beetle is resting upon a freckled nose of a young boy.",
+      "Boy that is outside with a green bug sitting on his nose.",
+      "A boy poses with a large green insect on his nose.",
+      "A boy with a winged bug perched on his nose."
+    ],
+    "2678668581.jpg": [
+      "People gather under a white tent while some sit at tables.",
+      "People sitting at tables at some sort of festival.",
+      "The people are sitting and mingling near the tent.",
+      "Many people are sitting around a tent outside.",
+      "People are gathered in a park."
+    ],
+    "2268207503.jpg": [
+      "A lady pushes a stroller, behind a child, riding a tricycle, while another child walks along side.",
+      "An old man in a green shirt is walking down a paved path with three small children.",
+      "A man and three kids walk up a paved hill.",
+      "A Family going for a walk in a park.",
+      "A family walks through a park."
+    ],
+    "4808471657.jpg": [
+      "A woman in a white shirt and blue shorts follows a two people in red shirts up a staircase.",
+      "A group of three people climb a path of wooden stairs up a rocky hill.",
+      "Three people are outside walking up a set of wooden stairs.",
+      "These people are climbing the steps to go the mountain",
+      "People walking up a narrow set of wooden stairs."
+    ],
+    "202174004.jpg": [
+      "Climbers with hiking boots and blue helmets ascend a snow covered mountain.",
+      "A group of hikers are climbing up a snowy mountain.",
+      "A group of people are hiking up an icy hillside.",
+      "Five people in full gear are mountain climbing.",
+      "A group of people are climbing in cold weather."
+    ],
+    "4687557453.jpg": [
+      "Two people in orange shirts sits at a table on the right of a group of people in blue shirts in front an old building.",
+      "A crowd of people sitting at picnic tables in front of a brick, historic-looking building.",
+      "A crowd of people gathered in a public place outdoors sitting at picnic tables.",
+      "This is a large group of people sitting outside on benches.",
+      "People are sitting at tables."
+    ],
+    "4814332291.jpg": [
+      "A small group of Asian youths gathered on the sidewalk looking into camera and playing around.",
+      "An Asian man makes faces for the camera.",
+      "A group of people all joking around",
+      "A group of young Asian people.",
+      "A boy stands with three girls."
+    ]
+  },
+  "captions": [
+    {
+      "image_id": "45543081.jpg",
+      "model": "xe",
+      "decoding": "greedy",
+      "caption": "a man in a hat is pulling a cart full of food.",
+      "completed": true
+    },
+    {
+      "image_id": "2072331027.jpg",
+      "model": "xe",
+      "decoding": "greedy",
+      "caption": "two men in colorful clothing are holding a baby.",
+      "completed": true
+    },
+    {
+      "image_id": "118865844.jpg",
+      "model": "xe",
+      "decoding": "greedy",
+      "caption": "a woman in a pink shirt and yellow pants is bending over a table.",
+      "completed": true
+    },
+    {
+      "image_id": "4814335297.jpg",
+      "model": "xe",
+      "decoding": "greedy",
+      "caption": "a group of asian people are standing in a circle talking.",
+      "completed": true
+    },
+    {
+      "image_id": "2854959952.jpg",
+      "model": "xe",
+      "decoding": "greedy",
+      "caption": "a dog jumps to catch a ball.",
+      "completed": true
+    },
+    {
+      "image_id": "2750185692.jpg",
+      "model": "xe",
+      "decoding": "greedy",
+      "caption": "a young boy is looking at a green plant.",
+      "completed": true
+    },
+    {
+      "image_id": "2678668581.jpg",
+      "model": "xe",
+      "decoding": "greedy",
+      "caption": "people sitting under a tent at a fair.",
+      "completed": true
+    },
+    {
+      "image_id": "2268207503.jpg",
+      "model": "xe",
+      "decoding": "greedy",
+      "caption": "a man and a child are sitting on a small tree lined street.",
+      "completed": true
+    },
+    {
+      "image_id": "4808471657.jpg",
+      "model": "xe",
+      "decoding": "greedy",
+      "caption": "a woman is climbing stairs between two large trees.",
+      "completed": true
+    },
+    {
+      "image_id": "202174004.jpg",
+      "model": "xe",
+      "decoding": "greedy",
+      "caption": "two men in hiking gear are hiking in a snowy area.",
+      "completed": true
+    },
+    {
+      "image_id": "4687557453.jpg",
+      "model": "xe",
+      "decoding": "greedy",
+      "caption": "a large crowd of people are sitting at tables in front of a large building.",
+      "completed": true
+    },
+    {
+      "image_id": "4814332291.jpg",
+      "model": "xe",
+      "decoding": "greedy",
+      "caption": "a group of people are standing in front of a wall with a sign that says \" welcome \".",
+      "completed": true
+    },
+    {
+      "image_id": "45543081.jpg",
+      "model": "xe",
+      "decoding": "beam",
+      "caption": "a man in a hat is pulling a cart full of food.",
+      "completed": true
+    },
+    {
+      "image_id": "2072331027.jpg",
+      "model": "xe",
+      "decoding": "beam",
+      "caption": "a man in a yellow shirt prays with a boy in a red shirt.",
+      "completed": true
+    },
+    {
+      "image_id": "118865844.jpg",
+      "model": "xe",
+      "decoding": "beam",
+      "caption": "a woman in a pink shirt and black pants is cutting a piece of wood.",
+      "completed": true
+    },
+    {
+      "image_id": "4814335297.jpg",
+      "model": "xe",
+      "decoding": "beam",
+      "caption": "a man in a black shirt is talking to a group of people.",
+      "completed": true
+    },
+    {
+      "image_id": "2854959952.jpg",
+      "model": "xe",
+      "decoding": "beam",
+      "caption": "a dog jumps to catch a ball.",
+      "completed": true
+    },
+    {
+      "image_id": "2750185692.jpg",
+      "model": "xe",
+      "decoding": "beam",
+      "caption": "a young boy is looking at a green plant.",
+      "completed": true
+    },
+    {
+      "image_id": "2678668581.jpg",
+      "model": "xe",
+      "decoding": "beam",
+      "caption": "a large group of people are sitting under a tent.",
+      "completed": true
+    },
+    {
+      "image_id": "2268207503.jpg",
+      "model": "xe",
+      "decoding": "beam",
+      "caption": "a man and a child are on a motorized bike.",
+      "completed": true
+    },
+    {
+      "image_id": "4808471657.jpg",
+      "model": "xe",
+      "decoding": "beam",
+      "caption": "two children are on a bridge over a wooded area.",
+      "completed": true
+    },
+    {
+      "image_id": "202174004.jpg",
+      "model": "xe",
+      "decoding": "beam",
+      "caption": "three people are hiking in the snow.",
+      "completed": true
+    },
+    {
+      "image_id": "4687557453.jpg",
+      "model": "xe",
+      "decoding": "beam",
+      "caption": "a large crowd of people are sitting at tables in front of a large building.",
+      "completed": true
+    },
+    {
+      "image_id": "4814332291.jpg",
+      "model": "xe",
+      "decoding": "beam",
+      "caption": "a group of people are standing in front of a wall talking.",
+      "completed": true
+    },
+    {
+      "image_id": "45543081.jpg",
+      "model": "reinforce",
+      "decoding": "greedy",
+      "caption": "a man in a hat is pulling a cart.",
+      "completed": true
+    },
+    {
+      "image_id": "2072331027.jpg",
+      "model": "reinforce",
+      "decoding": "greedy",
+      "caption": "a man in a yellow shirt is holding a indian boy.",
+      "completed": true
+    },
+    {
+      "image_id": "118865844.jpg",
+      "model": "reinforce",
+      "decoding": "greedy",
+      "caption": "a woman in a green shirt is playing with a floor.",
+      "completed": true
+    },
+    {
+      "image_id": "4814335297.jpg",
+      "model": "reinforce",
+      "decoding": "greedy",
+      "caption": "a group of asian people are standing in a hallway.",
+      "completed": true
+    },
+    {
+      "image_id": "2854959952.jpg",
+      "model": "reinforce",
+      "decoding": "greedy",
+      "caption": "a black and white dog is playing with a ball.",
+      "completed": true
+    },
+    {
+      "image_id": "2750185692.jpg",
+      "model": "reinforce",
+      "decoding": "greedy",
+      "caption": "a woman is holding a green two green flowers.",
+      "completed": true
+    },
+    {
+      "image_id": "2678668581.jpg",
+      "model": "reinforce",
+      "decoding": "greedy",
+      "caption": "a group of people are sitting at a tent.",
+      "completed": true
+    },
+    {
+      "image_id": "2268207503.jpg",
+      "model": "reinforce",
+      "decoding": "greedy",
+      "caption": "a man and a child are sitting on a yellow scooter.",
+      "completed": true
+    },
+    {
+      "image_id": "4808471657.jpg",
+      "model": "reinforce",
+      "decoding": "greedy",
+      "caption": "a woman is sitting on a bridge.",
+      "completed": true
+    },
+    {
+      "image_id": "202174004.jpg",
+      "model": "reinforce",
+      "decoding": "greedy",
+      "caption": "two men are hiking in a mountain.",
+      "completed": true
+    },
+    {
+      "image_id": "4687557453.jpg",
+      "model": "reinforce",
+      "decoding": "greedy",
+      "caption": "a crowd of people are sitting at tables in a restaurant.",
+      "completed": true
+    },
+    {
+      "image_id": "4814332291.jpg",
+      "model": "reinforce",
+      "decoding": "greedy",
+      "caption": "a group of asian people are sitting on a wall.",
+      "completed": true
+    },
+    {
+      "image_id": "45543081.jpg",
+      "model": "reinforce",
+      "decoding": "beam",
+      "caption": "a man in a hat is pulling a cart.",
+      "completed": true
+    },
+    {
+      "image_id": "2072331027.jpg",
+      "model": "reinforce",
+      "decoding": "beam",
+      "caption": "a man in a yellow shirt is holding a indian boy.",
+      "completed": true
+    },
+    {
+      "image_id": "118865844.jpg",
+      "model": "reinforce",
+      "decoding": "beam",
+      "caption": "a woman in a green shirt is playing with a floor.",
+      "completed": true
+    },
+    {
+      "image_id": "4814335297.jpg",
+      "model": "reinforce",
+      "decoding": "beam",
+      "caption": "a group of asian people are standing in a hallway.",
+      "completed": true
+    },
+    {
+      "image_id": "2854959952.jpg",
+      "model": "reinforce",
+      "decoding": "beam",
+      "caption": "a black and white dog is playing with a ball.",
+      "completed": true
+    },
+    {
+      "image_id": "2750185692.jpg",
+      "model": "reinforce",
+      "decoding": "beam",
+      "caption": "a woman is holding a green butterfly.",
+      "completed": true
+    },
+    {
+      "image_id": "2678668581.jpg",
+      "model": "reinforce",
+      "decoding": "beam",
+      "caption": "a group of people are sitting at a tent.",
+      "completed": true
+    },
+    {
+      "image_id": "2268207503.jpg",
+      "model": "reinforce",
+      "decoding": "beam",
+      "caption": "a man and a child are sitting on a scooter.",
+      "completed": true
+    },
+    {
+      "image_id": "4808471657.jpg",
+      "model": "reinforce",
+      "decoding": "beam",
+      "caption": "a woman is sitting on a bridge.",
+      "completed": true
+    },
+    {
+      "image_id": "202174004.jpg",
+      "model": "reinforce",
+      "decoding": "beam",
+      "caption": "two men are hiking in a mountain.",
+      "completed": true
+    },
+    {
+      "image_id": "4687557453.jpg",
+      "model": "reinforce",
+      "decoding": "beam",
+      "caption": "a crowd of people are sitting at tables in a restaurant.",
+      "completed": true
+    },
+    {
+      "image_id": "4814332291.jpg",
+      "model": "reinforce",
+      "decoding": "beam",
+      "caption": "a group of asian people are sitting in a tent.",
+      "completed": true
+    },
+    {
+      "image_id": "45543081.jpg",
+      "model": "scst",
+      "decoding": "greedy",
+      "caption": "a man in a hat is selling a cart down a street.",
+      "completed": true
+    },
+    {
+      "image_id": "2072331027.jpg",
+      "model": "scst",
+      "decoding": "greedy",
+      "caption": "a man and a boy are playing a religious man in a red shirt.",
+      "completed": true
+    },
+    {
+      "image_id": "118865844.jpg",
+      "model": "scst",
+      "decoding": "greedy",
+      "caption": "a woman in a pink shirt is playing with a floor.",
+      "completed": true
+    },
+    {
+      "image_id": "4814335297.jpg",
+      "model": "scst",
+      "decoding": "greedy",
+      "caption": "a group of asian people are standing in a hallway.",
+      "completed": true
+    },
+    {
+      "image_id": "2854959952.jpg",
+      "model": "scst",
+      "decoding": "greedy",
+      "caption": "a black and white dog is jumping to catch a ball.",
+      "completed": true
+    },
+    {
+      "image_id": "2750185692.jpg",
+      "model": "scst",
+      "decoding": "greedy",
+      "caption": "a girl is holding a green ball in a green.",
+      "completed": true
+    },
+    {
+      "image_id": "2678668581.jpg",
+      "model": "scst",
+      "decoding": "greedy",
+      "caption": "a group of people are sitting at a tent.",
+      "completed": true
+    },
+    {
+      "image_id": "2268207503.jpg",
+      "model": "scst",
+      "decoding": "greedy",
+      "caption": "a man and a child are sitting on a scooter on a road.",
+      "completed": true
+    },
+    {
+      "image_id": "4808471657.jpg",
+      "model": "scst",
+      "decoding": "greedy",
+      "caption": "a woman is sitting on a wooden bridge over a river.",
+      "completed": true
+    },
+    {
+      "image_id": "202174004.jpg",
+      "model": "scst",
+      "decoding": "greedy",
+      "caption": "two men are hiking in the snow.",
+      "completed": true
+    },
+    {
+      "image_id": "4687557453.jpg",
+      "model": "scst",
+      "decoding": "greedy",
+      "caption": "a crowd of people are sitting at a table in a restaurant.",
+      "completed": true
+    },
+    {
+      "image_id": "4814332291.jpg",
+      "model": "scst",
+      "decoding": "greedy",
+      "caption": "a group of people are sitting in a room.",
+      "completed": true
+    },
+    {
+      "image_id": "45543081.jpg",
+      "model": "scst",
+      "decoding": "beam",
+      "caption": "a man in a hat is selling a cart down a street.",
+      "completed": true
+    },
+    {
+      "image_id": "2072331027.jpg",
+      "model": "scst",
+      "decoding": "beam",
+      "caption": "a man in an orange shirt is playing with a children.",
+      "completed": true
+    },
+    {
+      "image_id": "118865844.jpg",
+      "model": "scst",
+      "decoding": "beam",
+      "caption": "a woman in a pink shirt is playing with a floor.",
+      "completed": true
+    },
+    {
+      "image_id": "4814335297.jpg",
+      "model": "scst",
+      "decoding": "beam",
+      "caption": "a group of asian people are standing in a hallway.",
+      "completed": true
+    },
+    {
+      "image_id": "2854959952.jpg",
+      "model": "scst",
+      "decoding": "beam",
+      "caption": "a black and white dog is jumping to catch a ball.",
+      "completed": true
+    },
+    {
+      "image_id": "2750185692.jpg",
+      "model": "scst",
+      "decoding": "beam",
+      "caption": "a girl is holding a green and white butterfly.",
+      "completed": true
+    },
+    {
+      "image_id": "2678668581.jpg",
+      "model": "scst",
+      "decoding": "beam",
+      "caption": "a group of people are sitting at a tent.",
+      "completed": true
+    },
+    {
+      "image_id": "2268207503.jpg",
+      "model": "scst",
+      "decoding": "beam",
+      "caption": "a man and a child are sitting on a scooter.",
+      "completed": true
+    },
+    {
+      "image_id": "4808471657.jpg",
+      "model": "scst",
+      "decoding": "beam",
+      "caption": "a woman is sitting on a wooden bridge over a river.",
+      "completed": true
+    },
+    {
+      "image_id": "202174004.jpg",
+      "model": "scst",
+      "decoding": "beam",
+      "caption": "two men are hiking in the snow.",
+      "completed": true
+    },
+    {
+      "image_id": "4687557453.jpg",
+      "model": "scst",
+      "decoding": "beam",
+      "caption": "a crowd of people are sitting at a table in a restaurant.",
+      "completed": true
+    },
+    {
+      "image_id": "4814332291.jpg",
+      "model": "scst",
+      "decoding": "beam",
+      "caption": "a group of people are sitting in a room.",
+      "completed": true
+    }
+  ]
+}

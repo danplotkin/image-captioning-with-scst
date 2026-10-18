@@ -1,0 +1,65 @@
+{
+  "source_sha256": {
+    "artifacts/final-evaluation/test/xe/greedy/metrics.json": "760a0bbf302f52767c3a148f246b793ffdf5e62ec474f7dbafb0e9a3a23fecfb",
+    "artifacts/final-evaluation/test/reinforce/greedy/metrics.json": "a3f5e72b83dbe9b4c359d725ed29ea0792e08d992b09e87f2947ed4bc6ac5c14",
+    "artifacts/final-evaluation/test/scst/greedy/metrics.json": "8bf5e80ec4c2942ba257dc9d39d3beb924e3f83ec6826e430776efab0b671685",
+    "artifacts/flickr30k/xe/history.json": "8fcf76d09b07858b7a7b78c5599647afb9cf7ea8ca54d0ce464084e15bf36b2a",
+    "artifacts/flickr30k-xe-finetune-runpod/history.json": "9be38a3cbc8427fb4c979fb87ac6fe4345d0c7dacb46661d71ef77fa5edc4e95"
+  },
+  "evaluation_protocol": {
+    "backend": "pycocoevalcap",
+    "backend_version": "1.2",
+    "comparison_protocol_sha256": "1f453acd12f38be29b3d70651e2578bb25a714a7a5217c6a52ff5ab125f46c70",
+    "context": {
+      "beam_size": null,
+      "caption_records_sha256": "9c800d55fad1d74cd2827f06303d7adf4f9bed2697d74b8ba5d40fc198e199f8",
+      "checkpoint": "artifacts/flickr30k-xe-finetune-runpod/best.pt",
+      "checkpoint_sha256": "b5b037386cf963673c72ed79ef5e4f8ef95b240c9f3418c0a78622d6f1f1dfd6",
+      "decoding": "greedy",
+      "encoder_name": "google/vit-base-patch16-384",
+      "encoder_revision": "2960116e809e2fca84146dbb240289aee7db4827",
+      "image_files_sha256": "3783087044db163bdec5f0187e1901e9c005b1e55d3585a810386c562e3ef577",
+      "inference_precision": "cuda_amp_fp16",
+      "length_penalty_alpha": null,
+      "max_new_tokens": 80,
+      "special_token_policy": "forbid_all_special_except_eos",
+      "split_manifest_sha256": "0433b48a9a5600c4ba6f24c70c502148a16bf5234d757aef3bde754cce5c021d",
+      "tokenizer_name": "distilbert-base-uncased",
+      "tokenizer_revision": "12040accade4e8a0f71eabdb258fecc2e7e948be",
+      "training_objective": {
+        "caption_decoding": "explicit_no_hf_cleanup_caption_spacing_v1",
+        "caption_text_normalization": "apostrophe_suffixes_interword_hyphen_spacing_v1",
+        "document_frequency": "fixed_training_corpus_v2",
+        "eos_policy": "append_on_completion",
+        "implementation": "scst_captioner._cider.CiderDScorer",
+        "name": "cider_d",
+        "package_version": "1.2",
+        "reward_text_normalization": "wordpiece_punctuation_boundaries_caption_spacing_v1",
+        "tokenization": "wordpiece_boundaries_nltk_treebank_casefold_coco_punctuation_v3"
+      },
+      "training_objective_eos_policy": "append_on_completion",
+      "unverified_legacy_checkpoint": false,
+      "use_kv_cache": true
+    },
+    "include_spice": false,
+    "metrics": [
+      "Bleu_1",
+      "Bleu_2",
+      "Bleu_3",
+      "Bleu_4",
+      "METEOR",
+      "ROUGE_L",
+      "CIDEr"
+    ],
+    "num_images": 1000,
+    "ordered_image_ids_sha256": "22c4d125cea6a388567687f0161de241d943a508383473f7fbcc58c82069d1bf",
+    "predictions_sha256": "47fabfedc7849d4cec2d3f865807b0c8a6f9903efb6a3bf212819fe6a41b958f",
+    "reference_counts": [
+      5
+    ],
+    "references_sha256": "99b213fa06e24ea5c6971b71713c242079ac2ec6158aa355b75e7fb121473960",
+    "schema_version": 1,
+    "tokenizer": "PTBTokenizer"
+  },
+  "note": "Loss curves use saved histories; stars mark minimum validation loss. Metrics are raw pycocoevalcap values."
+}

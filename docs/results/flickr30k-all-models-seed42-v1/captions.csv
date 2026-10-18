@@ -1,0 +1,73 @@
+image_id,model,decoding,caption,completed
+45543081.jpg,xe,greedy,a man in a hat is pulling a cart full of food.,True
+2072331027.jpg,xe,greedy,two men in colorful clothing are holding a baby.,True
+118865844.jpg,xe,greedy,a woman in a pink shirt and yellow pants is bending over a table.,True
+4814335297.jpg,xe,greedy,a group of asian people are standing in a circle talking.,True
+2854959952.jpg,xe,greedy,a dog jumps to catch a ball.,True
+2750185692.jpg,xe,greedy,a young boy is looking at a green plant.,True
+2678668581.jpg,xe,greedy,people sitting under a tent at a fair.,True
+2268207503.jpg,xe,greedy,a man and a child are sitting on a small tree lined street.,True
+4808471657.jpg,xe,greedy,a woman is climbing stairs between two large trees.,True
+202174004.jpg,xe,greedy,two men in hiking gear are hiking in a snowy area.,True
+4687557453.jpg,xe,greedy,a large crowd of people are sitting at tables in front of a large building.,True
+4814332291.jpg,xe,greedy,"a group of people are standing in front of a wall with a sign that says "" welcome "".",True
+45543081.jpg,xe,beam,a man in a hat is pulling a cart full of food.,True
+2072331027.jpg,xe,beam,a man in a yellow shirt prays with a boy in a red shirt.,True
+118865844.jpg,xe,beam,a woman in a pink shirt and black pants is cutting a piece of wood.,True
+4814335297.jpg,xe,beam,a man in a black shirt is talking to a group of people.,True
+2854959952.jpg,xe,beam,a dog jumps to catch a ball.,True
+2750185692.jpg,xe,beam,a young boy is looking at a green plant.,True
+2678668581.jpg,xe,beam,a large group of people are sitting under a tent.,True
+2268207503.jpg,xe,beam,a man and a child are on a motorized bike.,True
+4808471657.jpg,xe,beam,two children are on a bridge over a wooded area.,True
+202174004.jpg,xe,beam,three people are hiking in the snow.,True
+4687557453.jpg,xe,beam,a large crowd of people are sitting at tables in front of a large building.,True
+4814332291.jpg,xe,beam,a group of people are standing in front of a wall talking.,True
+45543081.jpg,reinforce,greedy,a man in a hat is pulling a cart.,True
+2072331027.jpg,reinforce,greedy,a man in a yellow shirt is holding a indian boy.,True
+118865844.jpg,reinforce,greedy,a woman in a green shirt is playing with a floor.,True
+4814335297.jpg,reinforce,greedy,a group of asian people are standing in a hallway.,True
+2854959952.jpg,reinforce,greedy,a black and white dog is playing with a ball.,True
+2750185692.jpg,reinforce,greedy,a woman is holding a green two green flowers.,True
+2678668581.jpg,reinforce,greedy,a group of people are sitting at a tent.,True
+2268207503.jpg,reinforce,greedy,a man and a child are sitting on a yellow scooter.,True
+4808471657.jpg,reinforce,greedy,a woman is sitting on a bridge.,True
+202174004.jpg,reinforce,greedy,two men are hiking in a mountain.,True
+4687557453.jpg,reinforce,greedy,a crowd of people are sitting at tables in a restaurant.,True
+4814332291.jpg,reinforce,greedy,a group of asian people are sitting on a wall.,True
+45543081.jpg,reinforce,beam,a man in a hat is pulling a cart.,True
+2072331027.jpg,reinforce,beam,a man in a yellow shirt is holding a indian boy.,True
+118865844.jpg,reinforce,beam,a woman in a green shirt is playing with a floor.,True
+4814335297.jpg,reinforce,beam,a group of asian people are standing in a hallway.,True
+2854959952.jpg,reinforce,beam,a black and white dog is playing with a ball.,True
+2750185692.jpg,reinforce,beam,a woman is holding a green butterfly.,True
+2678668581.jpg,reinforce,beam,a group of people are sitting at a tent.,True
+2268207503.jpg,reinforce,beam,a man and a child are sitting on a scooter.,True
+4808471657.jpg,reinforce,beam,a woman is sitting on a bridge.,True
+202174004.jpg,reinforce,beam,two men are hiking in a mountain.,True
+4687557453.jpg,reinforce,beam,a crowd of people are sitting at tables in a restaurant.,True
+4814332291.jpg,reinforce,beam,a group of asian people are sitting in a tent.,True
+45543081.jpg,scst,greedy,a man in a hat is selling a cart down a street.,True
+2072331027.jpg,scst,greedy,a man and a boy are playing a religious man in a red shirt.,True
+118865844.jpg,scst,greedy,a woman in a pink shirt is playing with a floor.,True
+4814335297.jpg,scst,greedy,a group of asian people are standing in a hallway.,True
+2854959952.jpg,scst,greedy,a black and white dog is jumping to catch a ball.,True
+2750185692.jpg,scst,greedy,a girl is holding a green ball in a green.,True
+2678668581.jpg,scst,greedy,a group of people are sitting at a tent.,True
+2268207503.jpg,scst,greedy,a man and a child are sitting on a scooter on a road.,True
+4808471657.jpg,scst,greedy,a woman is sitting on a wooden bridge over a river.,True
+202174004.jpg,scst,greedy,two men are hiking in the snow.,True
+4687557453.jpg,scst,greedy,a crowd of people are sitting at a table in a restaurant.,True
+4814332291.jpg,scst,greedy,a group of people are sitting in a room.,True
+45543081.jpg,scst,beam,a man in a hat is selling a cart down a street.,True
+2072331027.jpg,scst,beam,a man in an orange shirt is playing with a children.,True
+118865844.jpg,scst,beam,a woman in a pink shirt is playing with a floor.,True
+4814335297.jpg,scst,beam,a group of asian people are standing in a hallway.,True
+2854959952.jpg,scst,beam,a black and white dog is jumping to catch a ball.,True
+2750185692.jpg,scst,beam,a girl is holding a green and white butterfly.,True
+2678668581.jpg,scst,beam,a group of people are sitting at a tent.,True
+2268207503.jpg,scst,beam,a man and a child are sitting on a scooter.,True
+4808471657.jpg,scst,beam,a woman is sitting on a wooden bridge over a river.,True
+202174004.jpg,scst,beam,two men are hiking in the snow.,True
+4687557453.jpg,scst,beam,a crowd of people are sitting at a table in a restaurant.,True
+4814332291.jpg,scst,beam,a group of people are sitting in a room.,True

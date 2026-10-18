@@ -1,282 +1,160 @@
-# Image Captioning: XE, REINFORCE, and SCST
+# CaptionLab: Learning to Describe Images
 
-A reproducible, CPTR-inspired image-captioning experiment on **Flickr30k**: a
-pretrained ViT image encoder, a Transformer caption decoder, cross-entropy (XE)
-training, and sequence-level reinforcement learning with CIDEr-D rewards.
+A PyTorch image captioner that compares cross-entropy training, REINFORCE, and self-critical sequence training on Flickr30k.
 
-The project asks whether direct caption-reward optimization improves an XE
-captioner, and how a greedy self-critical baseline compares with raw-reward
-REINFORCE under a shared training recipe.
+> **Work in progress — not the final version.** The current REINFORCE and SCST results use Adam and are provisional. We plan to rerun both methods with AdamW from the same fine-tuned XE checkpoint, with weight decay explicitly configured and documented. Existing Adam checkpoints and results will be retained as a baseline; AdamW results are not yet available.
 
-**Experiment reset:** the previous SCST run was affected by a mixed-precision
-weight-cache bug. The training code is fixed and regression-tested. Both RL runs
-and their continuations have been deleted so REINFORCE and SCST can restart from
-the same XE parent. All previous evaluation outputs, test predictions, charts,
-and example galleries have also been removed. No replacement RL run has started.
-See the [bug explanation](docs/SCST_AMP_AUDIT.md).
+## Overview
 
-## Saved artifacts and next comparison
+CaptionLab turns an image into a sentence using a pretrained Vision Transformer and a custom Transformer decoder. The decoder, training loops, reward integration, and generation pipeline are implemented to explore how image features become words—and whether optimizing a caption-level reward improves on next-token prediction.
 
-Only the XE training artifacts are retained under `artifacts/`:
+The project follows a CPTR-inspired design, with staged encoder fine-tuning, reproducible dataset splits, checkpoint provenance, and cached decoding. The encoder weights and tokenizer are pretrained; the caption decoder is trained from scratch.
 
-- `artifacts/flickr30k/xe/`: original frozen-encoder XE run.
-- `artifacts/flickr30k-xe-finetune-runpod/`: partially fine-tuned XE run;
-  use `best.pt` as the common parent for new REINFORCE and SCST runs.
+## Methodology
 
-Start both RL methods as fresh runs, with the same XE checkpoint, seed, data,
-learning rates, schedule, and epoch budget. Do not resume the deleted RL runs.
-Choose checkpoints using validation, then rerun XE, REINFORCE, and SCST under
-one fixed test protocol. Results and caption examples are pending those runs.
-The test set has already been inspected previously; deleting outputs does not
-make it unseen. Keep future choices based on training and validation.
+### Architecture and vocabulary
 
-## Model and design choices
-
-This is a **CPTR-inspired adaptation**, not an exact reproduction of
-[CPTR](https://arxiv.org/abs/2101.10804). Its dataset, tokenizer, architecture details,
-and training recipe differ from the paper.
-
-```mermaid
-flowchart LR
-    I["Image · 384 × 384"] --> V["Pretrained ViT-B/16"]
-    V --> M["577 visual tokens · width 768"]
-    T["Caption prefix · WordPiece IDs"] --> E["Learned token embeddings + sinusoidal positions"]
-    E --> D["4 decoder layers: causal self-attention, visual cross-attention, FFN"]
-    M --> D
-    D --> H["Vocabulary projection"]
-    H --> N["Next token → greedy / sample / beam"]
-    N --> T
-```
-
-| Choice | Implementation and rationale |
+| Component | Implementation |
 | --- | --- |
-| Pretrained visual features | Pinned `google/vit-base-patch16-384`; use all patch tokens and the CLS token from `last_hidden_state`, with no pooled classifier output. |
-| Gradual visual adaptation | First train with the image encoder frozen, then unfreeze its last four blocks and final LayerNorm. This limits the number of visual parameters updated on Flickr30k; it is a chosen recipe, not a proven optimum. |
-| Separate learning rates | A smaller encoder LR protects pretrained visual features while the caption decoder adapts more quickly. |
-| Caption representation | Pinned `distilbert-base-uncased` WordPiece tokenizer; caption embeddings and decoder weights are learned by this project, not loaded from a pretrained language model. |
-| Decoder | Width 768, 12 attention heads, four layers, FFN width 1536, ReLU, dropout 0.1, sinusoidal positions. Each cross-attention layer projects raw ViT memory directly; there is no additional shared memory-projection layer. |
-| Image-level RL batches | One image per batch item with all five references avoids treating annotator captions as independent RL observations. |
-| Fixed reward corpus | Training-caption document frequencies make CIDEr-D independent of the current minibatch. Validation/test references are not used to build that reward corpus. |
-| Controlled evaluation | All methods share preprocessing, token constraints, output length, reference sets, and decoding settings. The method's training baseline is preserved in provenance. |
+| Encoder | Pretrained `google/vit-base-patch16-384`: 384 × 384 images, 16 × 16 patches, 768-dimensional features. The decoder attends to patch tokens plus the CLS token. |
+| Decoder | Custom 4-layer Transformer: causal self-attention, cross-attention to image features, 12 heads, width 768, feed-forward width 1,536, dropout 0.1, sinusoidal text positions. |
+| Vocabulary | Reuse the pinned `distilbert-base-uncased` WordPiece vocabulary; no vocabulary is fitted on Flickr30k or test captions. Token embeddings are learned with the decoder. `[CLS]`/`[SEP]` serve as start/end tokens. |
+| Data | Flickr30k Karpathy split: 29,000 training / 1,014 validation / 1,000 test images, five references per image. Test images are excluded from training and checkpoint selection. |
 
-Augmentation occurs on PIL images before the pinned image processor normalizes
-them. The Flickr30k runs use rotations up to 10 degrees and probabilistic
-brightness jitter, with horizontal flips disabled. Validation and test images use
-deterministic processing. All captions for an image stay in one split.
+### Training: XE → REINFORCE / SCST
 
-## Training objectives and experiment history
-
-XE minimizes teacher-forced token cross-entropy over non-padding targets. RL
-optimizes sampled captions using the shared sequence-policy loss:
+First, teacher forcing trains the model to predict reference tokens with padding-masked cross-entropy:
 
 $$
-L_{\mathrm{RL}} = -\frac{1}{B}\sum_i \operatorname{stopgrad}(A_i)
-\sum_t m_{i,t}\log p_\theta(y_{i,t}^{s}\mid y_{i,<t}^{s},x_i).
+\mathcal{L}_{\mathrm{XE}}=-\sum_t\log p_\theta(y_t^*\mid y_{<t}^*,x).
 $$
 
-The action mask includes the first EOS token and excludes every later action.
-The only intended method difference is the advantage:
+Both RL methods then start from the **same fine-tuned XE checkpoint**. For a sampled caption $y^s$, they optimize its CIDEr-D reward $r$:
 
-- **REINFORCE:** $A_i = r(y_i^s)$, a zero baseline.
-- **SCST:** $A_i = r(y_i^s)-r(\hat y_i)$, using the model's greedy caption as the baseline.
+$$
+\mathcal{L}_{\mathrm{RL}}=-\left[r(y^s)-b\right]\sum_{t=1}^{T_s}\log p_\theta(y_t^s\mid y_{<t}^s,x).
+$$
 
-The [SCST paper](https://arxiv.org/abs/1612.00563) uses the model's own test-time
-inference reward as its baseline. Here, greedy generation runs in eval mode with
-no gradients. Sampling also uses eval mode, which disables dropout but retains
-autograd. Beam search is a separate evaluation factor; it does not change the
-training baseline. Raw SCST and REINFORCE loss magnitudes are not comparable
-quality measures, and negative SCST loss is not itself an error.
-
-| Stage | Run and selection | Optimization |
+| Method | Baseline $b$ | What the update encourages |
 | --- | --- | --- |
-| Frozen-encoder XE | 10 completed epochs; best validation loss at epoch 7 | AdamW, warmup + cosine schedule; see original Flickr30k config |
-| Partial-encoder XE fine-tuning | 4 completed epochs of a maximum 5; best at epoch 2 | Decoder/head LR `1e-5`, encoder LR `1e-6`, AdamW, 10% warmup + cosine, patience 2 |
-| Fresh REINFORCE and SCST | Maximum 30 epochs each from the same fine-tuned XE parent | Adam, batch size 16, decoder/head LR `1e-5`, encoder LR `1e-6`, exponential decay `0.95` per epoch; validation patience 4 |
+| REINFORCE | $0$ | Increase the probability of positively rewarded sampled captions. |
+| SCST | $r(\hat y)$, where $\hat y$ is the model's greedy caption | Increase probability when the sample beats the model's own greedy output; decrease it when it does worse. |
 
-Use one config per method: `configs/flickr30k-reinforce.toml` and
-`configs/flickr30k-scst.toml`. They differ only in the training baseline:
-`none` for REINFORCE and `greedy` for SCST. Continuation TOMLs have been removed.
+SCST means **self-critical sequence training**: the model supplies its own baseline, without a separate critic network. Rewards are treated as constants; gradients flow through sampled-token log probabilities. The sum includes the first end token and excludes padding/post-end actions. Sampling uses evaluation mode with gradients enabled. Reward document frequencies are fixed from **training captions only**.
 
-Early stopping monitors greedy validation CIDEr-D minus the fixed XE validation
-score. The initial best delta is zero: a run must beat XE to reset patience.
-Stop after four consecutive epochs without a strictly higher best delta; ties
-count as no improvement. A new best resets the counter. The counter and best
-delta are saved in `last.pt` and restored on resume. `best.pt` remains the best
-RL validation checkpoint, even if no RL epoch beats XE. Thirty epochs is a
-maximum, so the methods may stop at different epochs under the same rule.
-Other configs retain the previous behavior when `[scst].patience` is omitted.
+| Stage / config | Trainable encoder | Optimizer | Decoder / encoder LR | Batch | Epoch cap / patience |
+| --- | --- | --- | --- | --- | --- |
+| [XE](configs/flickr30k.toml) | Frozen | AdamW | `1e-4` / — | 40 | 15 / 3 |
+| [XE fine-tuning](configs/flickr30k-xe-finetune.toml) | Last 4 blocks + final LayerNorm | AdamW | `1e-5` / `1e-6` | 40 | 5 / 2 |
+| [REINFORCE](configs/flickr30k-reinforce.toml) | Last 4 blocks + final LayerNorm | Adam | `1e-5` / `1e-6` | 16 | 30 / 4 |
+| [SCST](configs/flickr30k-scst.toml) | Last 4 blocks + final LayerNorm | Adam | `1e-5` / `1e-6` | 16 | 30 / 4 |
 
-Both methods use seed 42 and the same data and optimization settings. Equal epoch
-budgets do not imply equal compute: SCST adds a greedy rollout.
+XE uses weight decay 0.01 and cosine decay with 10% warmup; RL uses exponential LR decay of 0.95 per epoch. All stages clip gradient norm at 1.0. Checkpoints minimize validation XE loss or maximize greedy validation CIDEr-D. Saved REINFORCE/SCST runs stopped after 17/18 epochs and selected epochs 13/14.
 
-## Cached inference and correctness
+### Inference and KV caching
 
-Greedy, sampled eval-mode, and **beam-search** decoding use incremental attention
-KV caches. Each layer projects image keys/values once and appends caption
-keys/values as tokens arrive. Beam children can share an immutable parent prefix;
-extending one child creates a new cache without changing siblings. Completed
-beams retain their score and are not decoded further.
+| Choice | How it works |
+| --- | --- |
+| Greedy decoding | Pick the highest-probability next token at each step. Used for the test table and SCST baseline. |
+| Beam search | Keep several candidate captions, expand each by possible next tokens, then retain the best candidates. This explores alternatives that a single greedy choice discards. Here: beam width **3**, length-penalty exponent **0.7**. |
+| KV cache | Reuse previous self-attention keys/values and projected image cross-attention keys/values. Each step processes only the new token; beam branches reuse and reorder cached prefixes. This avoids repeated prefix computation. |
+| Stopping | Stop at the end token or 80 generated tokens; suppress non-caption special tokens. |
 
-Caching preserves the existing beam ranking, length penalty, special-token
-masking, first-EOS masks, and stopping rule. `runtime.use_kv_cache = false` selects
-the full-prefix reference implementation. Models without the incremental API and
-train-mode sampling fall back to full-prefix decoding. Cache state adds no model
-parameters and does not change checkpoint compatibility.
+Beam candidates are ranked by $\log p_\theta(y\mid x)/((5+T)/6)^{0.7}$, reducing the preference for short captions. Beam search approximately maximizes model probability; it does not directly maximize CIDEr. Set `runtime.use_kv_cache = false` for uncached decoding.
 
-Cached beam decoding has regression coverage for equivalence with full-prefix
-decoding. Saved evaluation and timing reports were removed during the reset;
-rerun real-checkpoint verification before the next GPU evaluation.
+## References
 
-Tests cover sibling branching and reordering, early EOS, mixed completion lengths,
-beam width one, length limits, forbidden tokens, raw versus normalized beam scores,
-checkpoint loading, and cached/full-prefix equivalence. Real-checkpoint checks
-use 16 validation images for each selected model; a finite subset is evidence,
-not a proof of bitwise equality for every possible image. Floating-point precision
-can change close token/beam decisions, so final evaluations share one precision.
+| Paper | Connection to this project |
+| --- | --- |
+| [Show and Tell — Vinyals et al., 2015](https://arxiv.org/abs/1411.4555) | Established neural image captioning with a visual encoder and recurrent sentence decoder. |
+| [Show, Attend and Tell — Xu et al., 2015](https://arxiv.org/abs/1502.03044) | Introduced visual attention for generating words from relevant image regions. |
+| [CPTR — Liu et al., 2021](https://arxiv.org/abs/2101.10804) | Motivates the image-patch Transformer encoder and Transformer caption decoder. This project is an adaptation. |
+| [Self-Critical Sequence Training — Rennie et al., 2017](https://arxiv.org/abs/1612.00563) | Uses the model's inference output as the baseline for sequence-reward optimization. |
 
-The **attention KV cache** and **autocast weight cache** are different mechanisms.
-SCST now gives the no-grad baseline and differentiable sample separate,
-non-overlapping autocast scopes, with weight caching enabled in each. The
-trainer does not wrap them in a shared outer scope.
-See [the training audit](docs/SCST_AMP_AUDIT.md) for the historical defect and why
-checking every trainable parameter's gradient matters.
+## Results (provisional)
 
-## Reproduce the project
+**Full 1,000-image test split · greedy decoding · five references · CUDA FP16 · KV cache.** Scores below are raw `pycocoevalcap` values, not multiplied by 100. All three evaluations share the same corpus/metric protocol; weights were selected on validation.
+
+| Model | BLEU-1 ↑ | BLEU-4 ↑ | METEOR ↑ | ROUGE-L ↑ | COCO CIDEr ↑ |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| XE | 0.6768 | 0.2595 | 0.2316 | 0.4881 | 0.6319 |
+| REINFORCE | 0.7274 | 0.2860 | 0.2190 | 0.4988 | 0.6907 |
+| SCST | **0.7365** | **0.3056** | **0.2319** | **0.5123** | **0.7342** |
+
+SCST improves CIDEr from 0.6319 to 0.7342 in this run; REINFORCE improves CIDEr but lowers METEOR. These are single-seed results, not a statistical ranking. [Metric CSV](docs/results/readme/test-metrics.csv) · [Source fingerprints](docs/results/readme/sources.json).
+
+**Training versus validation loss.** Stars mark the best validation epoch within each XE stage.
+
+![Training and validation cross-entropy for frozen-encoder XE and XE fine-tuning](docs/results/readme/xe-loss.png)
+
+**RL validation progress.** This chart uses training-corpus CIDEr-D, a different scoring protocol from the COCO CIDEr column above. RL is assessed by held-out reward rather than comparing policy-gradient loss magnitudes.
+
+![REINFORCE and SCST validation CIDEr-D against the XE baseline](docs/results/flickr30k-all-models-seed42-v1/validation-reward.png)
+
+The reported checkpoints come from replacement runs after the [SCST mixed-precision fix](docs/SCST_AMP_AUDIT.md).
+
+## Generated Examples
+
+The first three of **12 test images sampled with seed 42**, without score-based selection. Each panel contains the input image, all five human references, and XE/REINFORCE/SCST captions under greedy and beam decoding. These examples were generated locally in FP32; they illustrate outputs rather than reproduce the FP16 test scoring run.
+
+![First seeded example with human references and model captions](docs/results/flickr30k-all-models-seed42-v1/example-01.png)
+
+![Second seeded example with human references and model captions](docs/results/flickr30k-all-models-seed42-v1/example-02.png)
+
+![Third seeded example with human references and model captions](docs/results/flickr30k-all-models-seed42-v1/example-03.png)
+
+[All 12 panels](docs/results/flickr30k-all-models-seed42-v1) · [Captions](docs/results/flickr30k-all-models-seed42-v1/captions.csv) · [Exact selection](docs/results/flickr30k-all-models-seed42-v1/selection.json) · [Results notebook](notebooks/readme_results.ipynb).
+
+## Getting Started
 
 ### Install and prepare data
 
-Python 3.11–3.13 is supported. For local development:
+Use Python 3.11–3.13 and [uv](https://docs.astral.sh/uv/). COCO evaluation also requires a Java runtime for PTB tokenization and METEOR.
 
 ```bash
-uv sync --locked --extra dev --extra eval
+git clone https://github.com/danplotkin/image-captioning-with-scst.git
+cd image-captioning-with-scst
+uv sync --extra eval --extra notebook --extra dev
 uv run --with kagglehub python scripts/setup_flickr30k.py
 uv run scst-captioner validate-data --config configs/flickr30k.toml
 ```
 
-The setup script pins the Flickr30k image mirror and Karpathy annotation hashes,
-keeps all five captions, and saves an image-level split manifest:
+Dataset images and `.pt` checkpoints are not included in Git. The setup script downloads Flickr30k and prepares the pinned Karpathy split; train the models below or supply compatible checkpoints. The first model load downloads pinned Hugging Face assets.
 
-| Train | Validation | Test |
-| ---: | ---: | ---: |
-| 29,000 | 1,014 | 1,000 |
-
-Images live under `data/flickr30k/`, with the manifest at
-`data/splits/flickr30k.json`. Reruns verify existing data rather than silently
-changing the split. Dataset files and large checkpoints are intentionally ignored
-by Git. The pinned tokenizer and image processor may download on first use.
-
-For GPU verification and evaluation, the Runpod PyTorch 2.8/CUDA 12.8 image
-can use the constraints in `configs/evaluation-constraints.txt`. This differs
-from the newer local development Torch lock. Inside that image:
+### Train
 
 ```bash
-uv venv --system-site-packages .venv
-uv pip install --python .venv/bin/python -e '.[dev,eval]' \
-  --constraint configs/evaluation-constraints.txt
-apt-get update && apt-get install -y openjdk-21-jre-headless
-```
+# 1. Train the decoder with the ViT frozen.
+uv run scst-captioner train-xe --config configs/flickr30k.toml \
+  --output-dir artifacts/flickr30k/xe
 
-Java is required for COCO PTB tokenization and METEOR. CIDEr-D training rewards do
-not require Java. The optional `nltk_meteor` training reward requires separately
-installed WordNet resources; it is not used in these experiments.
+# 2. Fine-tune the final encoder blocks from that XE checkpoint.
+uv run scst-captioner train-xe --config configs/flickr30k-xe-finetune.toml \
+  --output-dir artifacts/flickr30k-xe-finetune-runpod
 
-### Train or inspect a checkpoint
-
-```bash
-# Train the frozen-encoder XE model, then partially fine-tune its best checkpoint.
-uv run scst-captioner train-xe --config configs/flickr30k.toml
-uv run scst-captioner train-xe --config configs/flickr30k-xe-finetune.toml
-
-# Start NEW RL experiments with corrected training code and separate output paths.
-uv run scst-captioner train-rl --config configs/flickr30k-scst.toml \
-  --xe-checkpoint artifacts/flickr30k-xe-finetune-runpod/best.pt \
-  --output-dir artifacts/flickr30k-policy-gradient/scst
-uv run scst-captioner train-rl --config configs/flickr30k-reinforce.toml \
+# 3. Train each RL method independently from the same fine-tuned XE parent.
+uv run scst-captioner train-scst --config configs/flickr30k-reinforce.toml \
   --xe-checkpoint artifacts/flickr30k-xe-finetune-runpod/best.pt \
   --output-dir artifacts/flickr30k-policy-gradient/reinforce
+
+uv run scst-captioner train-scst --config configs/flickr30k-scst.toml \
+  --xe-checkpoint artifacts/flickr30k-xe-finetune-runpod/best.pt \
+  --output-dir artifacts/flickr30k-policy-gradient/scst
 ```
 
-A fresh checkout does not contain the historical XE checkpoint. For your own run,
-use the `best.pt` produced by the fine-tuning command, normally
-`artifacts/flickr30k-xe-finetune/xe/best.pt`, as both RL parents.
+The CLI command `train-scst` supports both RL methods; the config selects the baseline. Use new output paths for new experiments. `init_checkpoint` starts a new optimizer; `--resume` restores training state.
 
-`best.pt` is selected using validation; `last.pt` is for resuming. Checkpoints
-contain weights, optimizer/scheduler/scaler state, RNG state, progress, resolved
-configuration, and provenance. `xe.init_checkpoint` initializes a fresh run;
-`--resume` restores training state. The opt-in constant-LR mode is available for
-new experiments, but these fresh-run configs use exponential decay.
-
-### Evaluate and regenerate the report
-
-After fresh training, the scripts use the two method directories under
-`artifacts/flickr30k-policy-gradient/` and the retained fine-tuned XE checkpoint.
-Results are pending; the commands below should run only after training completes.
-
-```bash
-# Compare cached and uncached beam inference on validation images.
-.venv/bin/python scripts/verify_kv_cache.py \
-  --checkpoint artifacts/flickr30k-policy-gradient/scst/best.pt \
-  --decoding beam --device cuda --images 16 \
-  --output artifacts/beam-verification.json
-
-# Six cells: XE / REINFORCE / SCST × greedy / beam-3.
-.venv/bin/python scripts/evaluate_final_models.py --device cuda --amp
-
-# Charts, test table, 12 example panels, and an HTML gallery from saved outputs.
-.venv/bin/python scripts/report_final_models.py
-```
-
-The evaluation script refuses incompatible checkpoints and verifies both RL
-models' common XE parent. `--resume` reuses completed cells only when source,
-checkpoint, configuration, data, and prediction identities match. Results are
-saved under `artifacts/final-evaluation/test/`; the gallery is under
-`artifacts/final-evaluation/gallery/`. Future tables, charts, and example panels can be written under `docs/results/`
-for README rendering; the previous outputs have been deleted.
-
-For a single image:
+### Caption an image and create visuals
 
 ```bash
 uv run scst-captioner caption path/to/image.jpg \
-  --config configs/flickr30k-reinforce.toml \
-  --checkpoint artifacts/flickr30k-policy-gradient/reinforce/best.pt \
+  --config configs/flickr30k-scst.toml \
+  --checkpoint artifacts/flickr30k-policy-gradient/scst/best.pt \
   --decoding beam
+
+uv run jupyter lab notebooks/readme_results.ipynb
 ```
 
-### Checks and supporting tools
+In the notebook, choose the seed, image count, models, and export name. It saves caption JSON/CSV, comparison panels, and a README snippet under `docs/results/`.
 
-```bash
-uv run pytest
-uv run ruff check .
-uv run ruff format --check src tests
-```
-
-The test suite uses small injected models and data without downloading datasets.
-The saved-weight verification scripts complement those tests with actual models.
-The [visual playground](notebooks/playground.ipynb) explains image preprocessing,
-patches, caption tokens, masks, and tensor shapes. Flickr8K remains supported via
-`configs/default.toml` and `scripts/setup_flickr8k.py`; its historical notebook
-scores are not mixed into this Flickr30k report.
-
-## Current limitations
-
-A corrected SCST-versus-REINFORCE comparison requires fresh training from the
-same XE parent, with gradients checked on the actual runtime before training.
-The historical SCST bug prevents conclusions about relative algorithm quality.
-Both old RL runs and all evaluation results have been removed. No corrected
-training results or test-set claims are reported here.
-
-A single shared seed and recipe would still be one controlled experiment, not a
-statistical ranking of algorithms or a state-of-the-art claim. Equal epoch
-budgets do not imply equal compute because SCST adds a greedy baseline rollout.
-
-The current package supersedes the [legacy notebook](notebooks/legacy/ImageCaptioner.ipynb).
-Earlier notebook scores used inconsistent protocols and unverified lineage.
-The [original audit](docs/AUDIT.md), [experiment protocol](docs/EXPERIMENT_PROTOCOL.md),
-[research alignment](docs/RESEARCH_ALIGNMENT.md), and
-[checkpoint compatibility guide](docs/CHECKPOINT_COMPATIBILITY.md) preserve the
-technical background.
-
-Flickr images belong to their original owners and are not relicensed by this
-repository. Example panels retain dataset image IDs. A code license has not yet
-been selected; choose one deliberately before redistributing the project as open
-source.
+For a full greedy/beam evaluation matrix, run `uv run python scripts/evaluate_final_models.py --device cuda --amp --output-dir artifacts/final-evaluation/new-test`. After all six cells finish, `scripts/report_final_models.py --evaluation-dir artifacts/final-evaluation/new-test` builds the aggregate report. Run checks with `uv run pytest` and `uv run ruff check .`.

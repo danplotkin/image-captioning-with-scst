@@ -1,0 +1,6 @@
+{
+  "artifacts/flickr30k-policy-gradient/reinforce/history.json": "aa456e2db863f2740327670e2f1a1caf6f4da1d83cce746f8b02101e84d5ff95",
+  "artifacts/flickr30k-policy-gradient/reinforce/xe_validation.json": "4fd63e255fa6cf6a3924596999a3271f1c88e452d2bbf1765b589c2caf1a32a8",
+  "artifacts/flickr30k-policy-gradient/scst/history.json": "441ed80b3c103dc8a29aeef69f377e4c45fd9727138ae7eb6df71a62723aa703",
+  "artifacts/flickr30k-policy-gradient/scst/xe_validation.json": "4fd63e255fa6cf6a3924596999a3271f1c88e452d2bbf1765b589c2caf1a32a8"
+}
