@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
@@ -304,111 +305,64 @@ def scst_rollouts(
     sample_model_mode: str = "eval",
     use_kv_cache: bool = True,
     baseline: str = "greedy",
+    amp: bool = False,
 ) -> SCSTRollouts:
-    """Generate a differentiable sample and an optional inference-mode baseline.
+    """Generate a differentiable sample and an optional no-grad greedy baseline.
 
-    The caller's original module mode is restored. Frozen encoders are encoded
-    once. A trainable encoder is encoded once for eval-mode sampling and twice
-    when train-mode sampling is requested, because the two passes deliberately
-    use different dropout modes.
-    With baseline='none', greedy generation is skipped and the baseline is None.
+    Owns separate, non-overlapping autocast scopes with weight caching enabled.
+    Do not wrap this function in autocast: exiting an inner scope would not clear
+    the outer scope's detached baseline weight casts. Pass amp=True instead.
+    Frozen encoders and eval-mode trainable encoders are encoded once; train-mode
+    trainable encoders are encoded separately for the eval-mode baseline.
+    The caller's module mode is restored, including when generation fails.
     """
-
     if sample_model_mode not in {"train", "eval"}:
         raise ValueError("sample_model_mode must be 'train' or 'eval'")
     if baseline not in {"greedy", "none"}:
         raise ValueError("baseline must be 'greedy' or 'none'")
+    device_type = pixel_values.device.type
+    if torch.is_autocast_enabled(device_type):
+        raise ValueError("scst_rollouts owns autocast scopes; pass amp=True without outer autocast")
+
+    def autocast():
+        return torch.autocast(
+            device_type=device_type, dtype=torch.float16, enabled=amp, cache_enabled=True
+        )
+
+    options = dict(
+        bos_token_id=bos_token_id,
+        eos_token_id=eos_token_id,
+        max_new_tokens=max_new_tokens,
+        forbidden_token_ids=forbidden_token_ids,
+        use_kv_cache=use_kv_cache,
+    )
     previous_mode = model.training
     try:
         model.eval()
         encoder_frozen = bool(getattr(model, "encoder_is_frozen", False))
-        if baseline == "none":
-            # Match SCST's sampling modes without generating a greedy caption.
-            if encoder_frozen:
-                with torch.no_grad():
-                    memory = model.encode_images(pixel_values)
-                if sample_model_mode == "train":
-                    model.train()
-            else:
-                model.train(sample_model_mode == "train")
-                memory = model.encode_images(pixel_values)
-            sampled = sample_decode(
-                model,
-                memory,
-                bos_token_id=bos_token_id,
-                eos_token_id=eos_token_id,
-                max_new_tokens=max_new_tokens,
-                forbidden_token_ids=forbidden_token_ids,
-                use_kv_cache=use_kv_cache,
-            )
-            return SCSTRollouts(baseline=None, sampled=sampled)
-        if encoder_frozen:
-            with torch.no_grad():
-                memory = model.encode_images(pixel_values)
-                baseline = greedy_decode(
-                    model,
-                    memory,
-                    bos_token_id=bos_token_id,
-                    eos_token_id=eos_token_id,
-                    max_new_tokens=max_new_tokens,
-                    forbidden_token_ids=forbidden_token_ids,
-                    use_kv_cache=use_kv_cache,
+        shared_memory = None
+        if encoder_frozen or sample_model_mode == "eval":
+            # Preserve encoder sharing and its gradient graph. This scope exits
+            # before either decoder rollout; only the baseline gets a detach.
+            with autocast(), torch.no_grad() if encoder_frozen else nullcontext():
+                shared_memory = model.encode_images(pixel_values)
+
+        baseline_output = None
+        if baseline == "greedy":
+            with autocast(), torch.no_grad():
+                baseline_memory = (
+                    shared_memory.detach()
+                    if shared_memory is not None
+                    else model.encode_images(pixel_values)
                 )
-            if sample_model_mode == "train":
-                model.train()
-            sampled = sample_decode(
-                model,
-                memory,
-                bos_token_id=bos_token_id,
-                eos_token_id=eos_token_id,
-                max_new_tokens=max_new_tokens,
-                forbidden_token_ids=forbidden_token_ids,
-                use_kv_cache=use_kv_cache,
+                baseline_output = greedy_decode(model, baseline_memory, **options)
+        # Exiting the baseline's outermost scope drops its detached FP16 casts.
+        model.train(sample_model_mode == "train")
+        with autocast():
+            sample_memory = (
+                shared_memory if shared_memory is not None else model.encode_images(pixel_values)
             )
-        elif sample_model_mode == "eval":
-            memory = model.encode_images(pixel_values)
-            with torch.no_grad():
-                baseline = greedy_decode(
-                    model,
-                    memory.detach(),
-                    bos_token_id=bos_token_id,
-                    eos_token_id=eos_token_id,
-                    max_new_tokens=max_new_tokens,
-                    forbidden_token_ids=forbidden_token_ids,
-                    use_kv_cache=use_kv_cache,
-                )
-            sampled = sample_decode(
-                model,
-                memory,
-                bos_token_id=bos_token_id,
-                eos_token_id=eos_token_id,
-                max_new_tokens=max_new_tokens,
-                forbidden_token_ids=forbidden_token_ids,
-                use_kv_cache=use_kv_cache,
-            )
-        else:
-            with torch.no_grad():
-                baseline_memory = model.encode_images(pixel_values)
-                baseline = greedy_decode(
-                    model,
-                    baseline_memory,
-                    bos_token_id=bos_token_id,
-                    eos_token_id=eos_token_id,
-                    max_new_tokens=max_new_tokens,
-                    forbidden_token_ids=forbidden_token_ids,
-                    use_kv_cache=use_kv_cache,
-                )
-            model.train()
-            sample_memory = model.encode_images(pixel_values)
-            sampled = sample_decode(
-                model,
-                sample_memory,
-                bos_token_id=bos_token_id,
-                eos_token_id=eos_token_id,
-                max_new_tokens=max_new_tokens,
-                forbidden_token_ids=forbidden_token_ids,
-                use_kv_cache=use_kv_cache,
-            )
-        return SCSTRollouts(baseline=baseline, sampled=sampled)
+            sampled = sample_decode(model, sample_memory, **options)
+        return SCSTRollouts(baseline=baseline_output, sampled=sampled)
     finally:
         model.train(previous_mode)

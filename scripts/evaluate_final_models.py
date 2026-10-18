@@ -22,8 +22,8 @@ from scst_captioner.reproducibility import collect_environment
 
 RUNS = {
     "xe": "flickr30k-xe-finetune-runpod",
-    "reinforce": "flickr30k-reinforce-runpod-continued",
-    "scst": "flickr30k-scst-runpod-continued",
+    "reinforce": "flickr30k-policy-gradient/reinforce",
+    "scst": "flickr30k-policy-gradient/scst",
 }
 
 
@@ -63,7 +63,7 @@ def main():
     configs = {}
     for method in RUNS:
         name = "reinforce" if method == "reinforce" else "scst"
-        config = load_config(f"configs/flickr30k-{name}-continue.toml")
+        config = load_config(f"configs/flickr30k-{name}.toml")
         configs[method] = dataclasses.replace(
             config,
             runtime=dataclasses.replace(

@@ -1,0 +1,6 @@
+{
+  "src/scst_captioner/generation.py": "e0691c3c9a19947b1d42f0ccb152844fbb771d656103b033021d133b90f6b050",
+  "src/scst_captioner/training/scst.py": "5f271c0230a415cd77a0a3649b82741c8280af27099b744ae3b5cad5e4d49c8a",
+  "tests/test_amp.py": "54a638752f1e03f36065c583e951695c7d90c55e50fc665b75332ae3620bd908",
+  "scripts/audit_scst_gradients.py": "d83280c886d775a2630e0c55e9346a292550a173a8d5acf4ad9b22c40e0ec8d0"
+}

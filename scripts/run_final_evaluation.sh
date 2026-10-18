@@ -11,7 +11,7 @@ mkdir -p artifacts/final-evaluation/cache-validation
 for method in xe reinforce scst; do
   case "$method" in
     xe) run=flickr30k-xe-finetune-runpod ;;
-    *) run=flickr30k-${method}-runpod-continued ;;
+    *) run=flickr30k-policy-gradient/${method} ;;
   esac
   .venv/bin/python -u scripts/verify_kv_cache.py --checkpoint "artifacts/$run/best.pt" \
     --decoding beam --images 16 --device cuda \
@@ -21,7 +21,7 @@ amp_ok=true
 for method in xe reinforce scst; do
   case "$method" in
     xe) run=flickr30k-xe-finetune-runpod ;;
-    *) run=flickr30k-${method}-runpod-continued ;;
+    *) run=flickr30k-policy-gradient/${method} ;;
   esac
   if ! .venv/bin/python -u scripts/verify_kv_cache.py --checkpoint "artifacts/$run/best.pt" \
     --decoding beam --images 16 --device cuda --amp \

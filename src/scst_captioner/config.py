@@ -59,6 +59,7 @@ class XEConfig:
 
 @dataclass(frozen=True)
 class SCSTConfig:
+    patience: int | None = None
     encoder_learning_rate: float | None = None
     epochs: int = 8
     batch_size: int = 12
@@ -163,6 +164,10 @@ class ExperimentConfig:
             or not 0.0 < self.scst.lr_decay <= 1.0
         ):
             raise ValueError("scst learning_rate must be positive and lr_decay in (0, 1]")
+        if self.scst.patience is not None and (
+            type(self.scst.patience) is not int or self.scst.patience < 1
+        ):
+            raise ValueError("scst.patience must be a positive integer or None")
         if self.scst.gradient_clip_norm <= 0:
             raise ValueError("scst.gradient_clip_norm must be positive")
         if self.scst.lr_schedule not in {"exponential", "constant"}:

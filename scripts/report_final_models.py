@@ -50,12 +50,9 @@ def validation_chart(artifacts, output):
     curves = {}
     baseline = None
     for method in ("reinforce", "scst"):
-        original = artifacts / f"flickr30k-{method}-runpod"
-        continued = artifacts / f"flickr30k-{method}-runpod-continued"
-        history = continued_history(
-            read_json(original / "history.json"), read_json(continued / "history.json")
-        )
-        xe = read_json(continued / "xe_validation.json")["value"]
+        run = artifacts / "flickr30k-policy-gradient" / method
+        history = continued_history([], read_json(run / "history.json"))
+        xe = read_json(run / "xe_validation.json")["value"]
         if baseline is not None and xe != baseline:
             raise ValueError("RL runs use different XE validation baselines")
         baseline = xe
@@ -82,12 +79,11 @@ def validation_chart(artifacts, output):
             zorder=5,
         )
     ax.axhline(baseline, color=COLORS["xe"], linestyle="--", label="XE baseline")
-    ax.axvline(15.5, color="#aaaaaa", linestyle=":", label="8-epoch continuation")
     ax.set(
         title="Flickr30k validation: saved experiment histories",
         xlabel="RL epoch",
         ylabel="Greedy CIDEr-D (fixed training-corpus IDF)",
-        xticks=[1, 5, 10, 15, 20, 23],
+        xticks=sorted({1, *range(5, max(len(c["history"]) for c in curves.values()) + 1, 5)}),
     )
     ax.grid(alpha=0.2)
     ax.legend(loc="lower right")
@@ -251,7 +247,7 @@ def main():
         return
     comparison = read_json(args.evaluation_dir / "comparison.json")
     test_chart(comparison, args.docs_output)
-    config = load_config("configs/flickr30k-scst-continue.toml")
+    config = load_config("configs/flickr30k-scst.toml")
     test_ids = read_json(config.data.split_manifest)["splits"]["test"]
     gallery(
         args.evaluation_dir,

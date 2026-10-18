@@ -139,26 +139,19 @@ class PolicyGradientTrainer:
                 raise ValueError("Policy-gradient batches must contain unique image IDs")
 
             self.optimizer.zero_grad(set_to_none=True)
-            # The no-grad greedy rollout must not seed autocast's weight cache
-            # with detached casts reused by the differentiable sampled rollout.
-            # This is separate from the autoregressive attention KV cache.
-            with torch.autocast(
-                device_type=self.device.type,
-                dtype=torch.float16,
-                enabled=self.amp_enabled,
-                cache_enabled=False,
-            ):
-                rollouts = scst_rollouts(
-                    self.model,
-                    pixel_values,
-                    bos_token_id=self.special_tokens.bos,
-                    eos_token_id=self.special_tokens.eos,
-                    max_new_tokens=self.max_new_tokens,
-                    forbidden_token_ids=self.forbidden_token_ids,
-                    sample_model_mode=self.sample_model_mode,
-                    use_kv_cache=self.use_kv_cache,
-                    baseline=self.baseline,
-                )
+            # The rollout owns separate autocast scopes for baseline and sample.
+            rollouts = scst_rollouts(
+                self.model,
+                pixel_values,
+                bos_token_id=self.special_tokens.bos,
+                eos_token_id=self.special_tokens.eos,
+                max_new_tokens=self.max_new_tokens,
+                forbidden_token_ids=self.forbidden_token_ids,
+                sample_model_mode=self.sample_model_mode,
+                use_kv_cache=self.use_kv_cache,
+                baseline=self.baseline,
+                amp=self.amp_enabled,
+            )
             sampled_text = self._decode_for_reward(rollouts.sampled)
             reward_references = self._references_for_reward(references)
             baseline_reward = torch.zeros(batch_size, device=self.device)

@@ -91,14 +91,23 @@ quality measures, and negative SCST loss is not itself an error.
 | --- | --- | --- |
 | Frozen-encoder XE | 10 completed epochs; best validation loss at epoch 7 | AdamW, warmup + cosine schedule; see original Flickr30k config |
 | Partial-encoder XE fine-tuning | 4 completed epochs of a maximum 5; best at epoch 2 | Decoder/head LR `1e-5`, encoder LR `1e-6`, AdamW, 10% warmup + cosine, patience 2 |
-| Independent RL runs | 15 epochs each from the same fine-tuned XE parent | Adam, batch size 16, decoder/head LR `1e-5`, encoder LR `1e-6`, exponential decay `0.85` per epoch |
-| RL continuation | 8 additional epochs each, total 23 | Resume original decayed LRs and scheduler; `resume_use_config_lrs = false` |
+| Fresh REINFORCE and SCST | Maximum 30 epochs each from the same fine-tuned XE parent | Adam, batch size 16, decoder/head LR `1e-5`, encoder LR `1e-6`, exponential decay `0.85` per epoch; validation patience 4 |
 
-The accepted continuation did not reset the learning rate. An abandoned constant-LR
-trial is excluded from the retained final histories. Both methods use seed 42 and
-29,000 training images per epoch, but equal epochs are not equal compute: SCST
-adds a greedy rollout. Matching nominal settings did not guarantee matching
-optimization behavior, as the AMP audit demonstrates.
+Use one config per method: `configs/flickr30k-reinforce.toml` and
+`configs/flickr30k-scst.toml`. They differ only in the training baseline:
+`none` for REINFORCE and `greedy` for SCST. Continuation TOMLs have been removed.
+
+Early stopping monitors greedy validation CIDEr-D minus the fixed XE validation
+score. The initial best delta is zero: a run must beat XE to reset patience.
+Stop after four consecutive epochs without a strictly higher best delta; ties
+count as no improvement. A new best resets the counter. The counter and best
+delta are saved in `last.pt` and restored on resume. `best.pt` remains the best
+RL validation checkpoint, even if no RL epoch beats XE. Thirty epochs is a
+maximum, so the methods may stop at different epochs under the same rule.
+Other configs retain the previous behavior when `[scst].patience` is omitted.
+
+Both methods use seed 42 and the same data and optimization settings. Equal epoch
+budgets do not imply equal compute: SCST adds a greedy rollout.
 
 ## Cached inference and correctness
 
@@ -126,7 +135,9 @@ not a proof of bitwise equality for every possible image. Floating-point precisi
 can change close token/beam decisions, so final evaluations share one precision.
 
 The **attention KV cache** and **autocast weight cache** are different mechanisms.
-The SCST training fix disables only the latter around the baseline/sample pair.
+SCST now gives the no-grad baseline and differentiable sample separate,
+non-overlapping autocast scopes, with weight caching enabled in each. The
+trainer does not wrap them in a shared outer scope.
 See [the training audit](docs/SCST_AMP_AUDIT.md) for the historical defect and why
 checking every trainable parameter's gradient matters.
 
@@ -179,10 +190,10 @@ uv run scst-captioner train-xe --config configs/flickr30k-xe-finetune.toml
 # Start NEW RL experiments with corrected training code and separate output paths.
 uv run scst-captioner train-rl --config configs/flickr30k-scst.toml \
   --xe-checkpoint artifacts/flickr30k-xe-finetune-runpod/best.pt \
-  --output-dir artifacts/new-scst
+  --output-dir artifacts/flickr30k-policy-gradient/scst
 uv run scst-captioner train-rl --config configs/flickr30k-reinforce.toml \
   --xe-checkpoint artifacts/flickr30k-xe-finetune-runpod/best.pt \
-  --output-dir artifacts/new-reinforce
+  --output-dir artifacts/flickr30k-policy-gradient/reinforce
 ```
 
 A fresh checkout does not contain the historical XE checkpoint. For your own run,
@@ -193,19 +204,18 @@ use the `best.pt` produced by the fine-tuning command, normally
 contain weights, optimizer/scheduler/scaler state, RNG state, progress, resolved
 configuration, and provenance. `xe.init_checkpoint` initializes a fresh run;
 `--resume` restores training state. The opt-in constant-LR mode is available for
-new experiments, but it is not the schedule used in the reported continuation.
+new experiments, but these fresh-run configs use exponential decay.
 
 ### Evaluate and regenerate the report
 
-After fresh training, configure the evaluation scripts to use the new run paths.
-Their current default paths refer to the deleted runs and must be updated before
-use. The reporting script also expects original and continuation histories.
-The following commands describe the workflow, not currently available outputs:
+After fresh training, the scripts use the two method directories under
+`artifacts/flickr30k-policy-gradient/` and the retained fine-tuned XE checkpoint.
+Results are pending; the commands below should run only after training completes.
 
 ```bash
 # Compare cached and uncached beam inference on validation images.
 .venv/bin/python scripts/verify_kv_cache.py \
-  --checkpoint artifacts/new-scst/best.pt \
+  --checkpoint artifacts/flickr30k-policy-gradient/scst/best.pt \
   --decoding beam --device cuda --images 16 \
   --output artifacts/beam-verification.json
 
@@ -228,7 +238,7 @@ For a single image:
 ```bash
 uv run scst-captioner caption path/to/image.jpg \
   --config configs/flickr30k-reinforce.toml \
-  --checkpoint artifacts/new-reinforce/best.pt \
+  --checkpoint artifacts/flickr30k-policy-gradient/reinforce/best.pt \
   --decoding beam
 ```
 

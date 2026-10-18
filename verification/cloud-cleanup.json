@@ -1,0 +1,32 @@
+{
+  "pod_id": "hofvdbtpcpcefy",
+  "image": "runpod/pytorch:1.0.2-cu1281-torch280-ubuntu2404",
+  "deleted": true,
+  "delete_response": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"status\": 204\n}"
+      }
+    ],
+    "isError": false
+  },
+  "pods_readback": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"pagination\": {\n    \"hasNextPage\": false,\n    \"nextCursor\": null\n  },\n  \"pods\": []\n}"
+      }
+    ],
+    "isError": false
+  },
+  "network_volumes_readback": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"networkVolumes\": [],\n  \"pagination\": {\n    \"hasNextPage\": false,\n    \"nextCursor\": null\n  }\n}"
+      }
+    ],
+    "isError": false
+  }
+}

@@ -1,0 +1,18 @@
+Fast image processor class <class 'transformers.models.vit.image_processing_vit_fast.ViTImageProcessorFast'> is available for this model. Using slow image processor class. To use the fast image processor class set `use_fast=True`.
+{"baseline": "greedy", "sample_mode": "eval", "kv_cache": true, "weight_cache": false, "missing_gradients": [], "nonfinite_gradients": []}
+{"baseline": "greedy", "sample_mode": "eval", "kv_cache": true, "weight_cache": true, "missing_gradients": [], "nonfinite_gradients": [], "matches_uncached_tokens": true, "max_gradient_absolute_difference": 0.0010542869567871094, "gradients_close_to_uncached_reference": true}
+{"baseline": "greedy", "sample_mode": "eval", "kv_cache": false, "weight_cache": false, "missing_gradients": [], "nonfinite_gradients": []}
+{"baseline": "greedy", "sample_mode": "eval", "kv_cache": false, "weight_cache": true, "missing_gradients": [], "nonfinite_gradients": [], "matches_uncached_tokens": true, "max_gradient_absolute_difference": 0.0010542869567871094, "gradients_close_to_uncached_reference": true}
+{"baseline": "greedy", "sample_mode": "train", "kv_cache": true, "weight_cache": false, "missing_gradients": [], "nonfinite_gradients": []}
+{"baseline": "greedy", "sample_mode": "train", "kv_cache": true, "weight_cache": true, "missing_gradients": [], "nonfinite_gradients": [], "matches_uncached_tokens": true, "max_gradient_absolute_difference": 0.0012006759643554688, "gradients_close_to_uncached_reference": true}
+{"baseline": "greedy", "sample_mode": "train", "kv_cache": false, "weight_cache": false, "missing_gradients": [], "nonfinite_gradients": []}
+{"baseline": "greedy", "sample_mode": "train", "kv_cache": false, "weight_cache": true, "missing_gradients": [], "nonfinite_gradients": [], "matches_uncached_tokens": true, "max_gradient_absolute_difference": 0.0012006759643554688, "gradients_close_to_uncached_reference": true}
+{"baseline": "none", "sample_mode": "eval", "kv_cache": true, "weight_cache": false, "missing_gradients": [], "nonfinite_gradients": []}
+{"baseline": "none", "sample_mode": "eval", "kv_cache": true, "weight_cache": true, "missing_gradients": [], "nonfinite_gradients": [], "matches_uncached_tokens": true, "max_gradient_absolute_difference": 0.0010542869567871094, "gradients_close_to_uncached_reference": true}
+{"baseline": "none", "sample_mode": "eval", "kv_cache": false, "weight_cache": false, "missing_gradients": [], "nonfinite_gradients": []}
+{"baseline": "none", "sample_mode": "eval", "kv_cache": false, "weight_cache": true, "missing_gradients": [], "nonfinite_gradients": [], "matches_uncached_tokens": true, "max_gradient_absolute_difference": 0.0010542869567871094, "gradients_close_to_uncached_reference": true}
+{"baseline": "none", "sample_mode": "train", "kv_cache": true, "weight_cache": false, "missing_gradients": [], "nonfinite_gradients": []}
+{"baseline": "none", "sample_mode": "train", "kv_cache": true, "weight_cache": true, "missing_gradients": [], "nonfinite_gradients": [], "matches_uncached_tokens": true, "max_gradient_absolute_difference": 0.0012006759643554688, "gradients_close_to_uncached_reference": true}
+{"baseline": "none", "sample_mode": "train", "kv_cache": false, "weight_cache": false, "missing_gradients": [], "nonfinite_gradients": []}
+{"baseline": "none", "sample_mode": "train", "kv_cache": false, "weight_cache": true, "missing_gradients": [], "nonfinite_gradients": [], "matches_uncached_tokens": true, "max_gradient_absolute_difference": 0.0012006759643554688, "gradients_close_to_uncached_reference": true}
+Audit saved: verification/amp-gradients.json

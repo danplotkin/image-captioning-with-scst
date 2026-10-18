@@ -193,8 +193,16 @@ def test_amp_finite_gradients_with_overflowing_norm_fail_before_update(stage: st
     assert trainer.optimizer.param_groups[0]["lr"] == pytest.approx(0.01)
 
 
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+@pytest.mark.parametrize("baseline", ["greedy", "none"])
+@pytest.mark.parametrize("sample_mode", ["eval", "train"])
+@pytest.mark.parametrize("use_kv_cache", [True, False])
 @pytest.mark.parametrize("freeze_encoder", [True, False])
-def test_scst_amp_keeps_gradients_for_every_trainable_parameter(freeze_encoder):
+def test_scst_amp_keeps_gradients_for_every_trainable_parameter(
+    freeze_encoder, use_kv_cache, sample_mode, baseline, device
+):
+    if device == "cuda" and not torch.cuda.is_available():
+        pytest.skip("CUDA hardware is required")
     from test_model import TinyBackbone, tiny_config
 
     from scst_captioner.model import CPTRCaptioner
@@ -205,19 +213,27 @@ def test_scst_amp_keeps_gradients_for_every_trainable_parameter(freeze_encoder):
         vocab_size=9,
         pad_token_id=0,
         backbone=TinyBackbone(),
-    )
+    ).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     trainer = SCSTTrainer(
         model,
         optimizer,
         tokenizer=TinyTokenizer(),
-        reward=UnitAdvantageReward(),
-        device=torch.device("cpu"),
+        reward=(
+            UnitAdvantageReward()
+            if baseline == "greedy"
+            else lambda predictions, references: [1.0] * len(predictions)
+        ),
+        device=torch.device(device),
+        baseline=baseline,
+        sample_model_mode=sample_mode,
+        use_kv_cache=use_kv_cache,
         max_new_tokens=3,
         amp=False,
     )
     trainer.amp_enabled = True
-    trainer.scaler = torch.amp.GradScaler("cpu", init_scale=1.0)
+    trainer.scaler = torch.amp.GradScaler(device, init_scale=1.0)
+    before = {n: p.detach().clone() for n, p in model.named_parameters() if p.requires_grad}
     trainer.train_epoch(
         [
             {
@@ -227,8 +243,77 @@ def test_scst_amp_keeps_gradients_for_every_trainable_parameter(freeze_encoder):
             }
         ]
     )
+    assert trainer.global_step == 1
+    assert any(
+        not torch.equal(before[n], p) for n, p in model.named_parameters() if p.requires_grad
+    )
     for name, parameter in model.named_parameters():
         if parameter.requires_grad:
             assert parameter.grad is not None, name
             assert torch.isfinite(parameter.grad).all(), name
             assert parameter in optimizer.state, name
+
+
+def test_rollouts_own_nonoverlapping_cached_autocast_scopes(monkeypatch):
+    from test_model import TinyBackbone, tiny_config
+
+    from scst_captioner import generation
+    from scst_captioner.model import CPTRCaptioner
+
+    model = CPTRCaptioner(
+        tiny_config(freeze_encoder=False), vocab_size=9, pad_token_id=0, backbone=TinyBackbone()
+    )
+    original_autocast = torch.autocast
+    active = []
+    calls = []
+
+    class Scope:
+        def __init__(self, **kwargs):
+            assert kwargs["cache_enabled"] is True
+            self.inner = original_autocast(**kwargs)
+
+        def __enter__(self):
+            assert not active, "Rollout autocast scopes must not overlap"
+            active.append(self)
+            calls.append(self)
+            return self.inner.__enter__()
+
+        def __exit__(self, *args):
+            active.pop()
+            return self.inner.__exit__(*args)
+
+    monkeypatch.setattr(torch, "autocast", Scope)
+    observed = []
+    original_greedy, original_sample = generation.greedy_decode, generation.sample_decode
+
+    def greedy(*args, **kwargs):
+        observed.append(("greedy", torch.is_grad_enabled(), torch.is_autocast_cache_enabled()))
+        return original_greedy(*args, **kwargs)
+
+    def sample(*args, **kwargs):
+        observed.append(("sample", torch.is_grad_enabled(), torch.is_autocast_cache_enabled()))
+        return original_sample(*args, **kwargs)
+
+    monkeypatch.setattr(generation, "greedy_decode", greedy)
+    monkeypatch.setattr(generation, "sample_decode", sample)
+    result = generation.scst_rollouts(
+        model, torch.ones(1, 3, 2, 2), bos_token_id=1, eos_token_id=2, max_new_tokens=3, amp=True
+    )
+    assert observed == [("greedy", False, True), ("sample", True, True)]
+    assert len(calls) == 3  # Shared encoder, no-grad baseline, grad-enabled sample.
+    assert not active
+    assert result.sampled.action_log_probs.requires_grad
+    assert result.baseline.action_log_probs is None
+    assert result.sampled.action_log_probs.dtype == torch.float16
+    with (
+        original_autocast("cpu", dtype=torch.float16),
+        pytest.raises(ValueError, match="without outer autocast"),
+    ):
+        generation.scst_rollouts(
+            model,
+            torch.ones(1, 3, 2, 2),
+            bos_token_id=1,
+            eos_token_id=2,
+            max_new_tokens=3,
+            amp=True,
+        )

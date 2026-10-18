@@ -7,6 +7,7 @@ import dataclasses
 import functools
 import hashlib
 import json
+import math
 import sys
 from collections.abc import Sequence
 from importlib.metadata import PackageNotFoundError, version
@@ -196,6 +197,7 @@ def _normalized_checkpoint_config(stored_config: Any) -> Any:
             "encoder_learning_rate": None,
             "lr_schedule": "exponential",
             "resume_use_config_lrs": False,
+            "patience": None,
         },
     }.items():
         if isinstance(stored_config.get(section), dict):
@@ -934,10 +936,37 @@ def command_train_scst(args: argparse.Namespace) -> int:
     else:
         print(f"XE validation {config.scst.reward}={xe_validation_reward:.4f}", flush=True)
     best_reward = _best_metric_value(resume_checkpoint, -float("inf"))
+    # The fixed XE policy is the initial best delta (zero). Negative deltas do
+    # not reset patience, even if they improve over an earlier negative delta.
+    best_delta, stale_epochs = 0.0, 0
+    if config.scst.patience is not None:
+        if xe_validation_reward is None or not math.isfinite(xe_validation_reward):
+            raise ValueError("RL early stopping requires a finite saved XE validation baseline")
+        for row in history:
+            delta = row["validation_reward"] - xe_validation_reward
+            if delta > best_delta:
+                best_delta, stale_epochs = delta, 0
+            else:
+                stale_epochs += 1
+        saved_stop = (resume_checkpoint or {}).get("training_state", {}).get("early_stopping")
+        if saved_stop is not None:
+            best_delta = saved_stop["best_delta_vs_xe"]
+            stale_epochs = saved_stop["stale_epochs"]
+        if stale_epochs >= config.scst.patience:
+            print("RL early stopping already reached in the resumed checkpoint; no more epochs.")
+            return 0
     for epoch in range(start_epoch, config.scst.epochs + 1):
         print(f"{method.upper()} epoch {epoch}/{config.scst.epochs}", flush=True)
         train_metrics = trainer.train_epoch(train_loader)
         validation_reward = trainer.evaluate(validation_loader)
+        if not math.isfinite(validation_reward):
+            raise ValueError("RL validation reward must be finite")
+        if config.scst.patience is not None:
+            delta = validation_reward - xe_validation_reward
+            if delta > best_delta:
+                best_delta, stale_epochs = delta, 0
+            else:
+                stale_epochs += 1
         history.append(
             {
                 "epoch": epoch,
@@ -972,6 +1001,16 @@ def command_train_scst(args: argparse.Namespace) -> int:
             training_state={
                 "history": history,
                 "xe_validation_reward": xe_validation_reward,
+                "early_stopping": (
+                    {
+                        "metric": "delta_vs_xe",
+                        "best_delta_vs_xe": best_delta,
+                        "stale_epochs": stale_epochs,
+                        "patience": config.scst.patience,
+                    }
+                    if config.scst.patience is not None
+                    else None
+                ),
                 "data_loader_generator_state": (
                     train_loader.generator.get_state()
                     if train_loader.generator is not None
@@ -1002,6 +1041,13 @@ def command_train_scst(args: argparse.Namespace) -> int:
             f"sample={train_metrics.sampled_reward:.4f}, baseline={train_metrics.baseline_reward:.4f}, "
             f"validation_{config.scst.reward}={validation_reward:.4f}{comparison}"
         )
+        if config.scst.patience is not None and stale_epochs >= config.scst.patience:
+            print(
+                f"{method.upper()} early stopping: {stale_epochs} epochs without a new "
+                f"best delta_vs_xe above {best_delta:+.4f}. Saved last.pt and best.pt.",
+                flush=True,
+            )
+            break
     return 0
 
 

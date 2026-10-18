@@ -120,8 +120,9 @@ def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
 
     def save_epoch_snapshot(checkpoint, path):
         save_checkpoint(checkpoint, path)
-        if Path(path).name == "last.pt" and checkpoint["progress"]["epoch"] == 1:
-            save_checkpoint(checkpoint, Path(path).with_name("epoch1.pt"))
+        epoch = checkpoint["progress"]["epoch"]
+        if Path(path).name == "last.pt" and epoch in (1, 5):
+            save_checkpoint(checkpoint, Path(path).with_name(f"epoch{epoch}.pt"))
 
     monkeypatch.setattr(cli, "load_config", lambda _: config)
     monkeypatch.setattr(cli, "_load_hf_components", lambda _: (tokenizer, processor))
@@ -299,3 +300,61 @@ def test_cli_xe_to_scst_and_epoch_resume_with_real_provenance(
             )
     for name, tensor in trained["model_state"].items():
         assert torch.equal(tensor, resumed["model_state"][name]), name
+
+    # Exercise the complete RL loop with controlled validation scores, including
+    # ties, reset on a new best, checkpoint persistence, and epoch-boundary resume.
+    config = dataclasses.replace(
+        config, scst=dataclasses.replace(config.scst, epochs=30, patience=4)
+    )
+    scores = iter([0.5, 0.6, 0.59, 0.61, 0.60, 0.61, 0.60, 0.58])
+    monkeypatch.setattr(cli.SCSTTrainer, "evaluate", lambda self, loader: next(scores))
+    args.resume = None
+    args.output_dir = str(tmp_path / "early-stop")
+    assert cli.command_train_scst(args) == 0
+    stopped = load_checkpoint_file(Path(args.output_dir) / "last.pt")
+    best = load_checkpoint_file(Path(args.output_dir) / "best.pt")
+    assert stopped["progress"]["epoch"] == 7
+    assert best["progress"]["epoch"] == 3
+    assert stopped["training_state"]["early_stopping"] == {
+        "metric": "delta_vs_xe",
+        "best_delta_vs_xe": pytest.approx(0.11),
+        "stale_epochs": 4,
+        "patience": 4,
+    }
+    # A resumed run reuses XE's baseline; it must not consume another XE score.
+    scores = iter([0.59, 0.61, 0.60, 0.61, 0.60, 0.58])
+    args.resume = str(tmp_path / "early-stop" / "epoch1.pt")
+    args.output_dir = str(tmp_path / "early-stop-resumed")
+    assert cli.command_train_scst(args) == 0
+    resumed = load_checkpoint_file(Path(args.output_dir) / "last.pt")
+    assert resumed["progress"] == stopped["progress"]
+    assert (
+        resumed["training_state"]["early_stopping"] == stopped["training_state"]["early_stopping"]
+    )
+    for name, tensor in stopped["model_state"].items():
+        assert torch.equal(tensor, resumed["model_state"][name]), name
+    # Resume midway through patience: epoch 5 already has two stale epochs.
+    scores = iter([0.60, 0.58])
+    args.resume = str(tmp_path / "early-stop" / "epoch5.pt")
+    args.output_dir = str(tmp_path / "mid-patience-resumed")
+    assert (
+        load_checkpoint_file(args.resume)["training_state"]["early_stopping"]["stale_epochs"] == 2
+    )
+    assert cli.command_train_scst(args) == 0
+    resumed = load_checkpoint_file(Path(args.output_dir) / "last.pt")
+    assert resumed["progress"] == stopped["progress"]
+    assert resumed["training_state"]["early_stopping"]["stale_epochs"] == 4
+    # Once patience is exhausted, resuming must not perform another epoch.
+    args.resume = str(Path(args.output_dir) / "last.pt")
+    assert cli.command_train_scst(args) == 0
+    assert load_checkpoint_file(args.resume)["progress"] == stopped["progress"]
+
+    # Improving negative deltas still fail to beat XE: stop after four epochs.
+    scores = iter([0.5, 0.1, 0.2, 0.3, 0.4])
+    args.resume = None
+    args.output_dir = str(tmp_path / "below-xe")
+    assert cli.command_train_scst(args) == 0
+    below = load_checkpoint_file(Path(args.output_dir) / "last.pt")
+    assert below["progress"]["epoch"] == 4
+    assert below["training_state"]["early_stopping"]["best_delta_vs_xe"] == 0
+    assert below["training_state"]["early_stopping"]["stale_epochs"] == 4
