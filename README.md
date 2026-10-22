@@ -1,4 +1,4 @@
-# CaptionLab: Learning to Describe Images
+# Learning to Describe Images
 
 A PyTorch image captioner that compares cross-entropy training, REINFORCE, and self-critical sequence training on Flickr30k.
 
@@ -6,7 +6,7 @@ A PyTorch image captioner that compares cross-entropy training, REINFORCE, and s
 
 ## Overview
 
-CaptionLab turns an image into a sentence using a pretrained Vision Transformer and a custom Transformer decoder. The decoder, training loops, reward integration, and generation pipeline are implemented to explore how image features become words—and whether optimizing a caption-level reward improves on next-token prediction.
+This project turns an image into a sentence using a pretrained Vision Transformer and a custom Transformer decoder. The decoder, training loops, reward integration, and generation pipeline are implemented to explore how image features become words—and whether optimizing a caption-level reward improves on next-token prediction.
 
 The project follows a CPTR-inspired design, with staged encoder fine-tuning, reproducible dataset splits, checkpoint provenance, and cached decoding. The encoder weights and tokenizer are pretrained; the caption decoder is trained from scratch.
 
@@ -26,7 +26,7 @@ The project follows a CPTR-inspired design, with staged encoder fine-tuning, rep
 First, teacher forcing trains the model to predict reference tokens with padding-masked cross-entropy:
 
 $$
-\mathcal{L}_{\mathrm{XE}}=-\sum_t\log p_\theta(y_t^*\mid y_{<t}^*,x).
+\mathcal{L}_{\mathrm{XE}}=-\sum_{t}\log p_{\theta}(y_{t}^{*}\mid y_{<t}^{*},x).
 $$
 
 Both RL methods then start from the **same fine-tuned XE checkpoint**. For a sampled caption $y^s$, they optimize its CIDEr-D reward $r$:
