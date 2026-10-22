@@ -26,7 +26,7 @@ The project follows a CPTR-inspired design, with staged encoder fine-tuning, rep
 First, teacher forcing trains the model to predict reference tokens with padding-masked cross-entropy:
 
 $$
-\mathcal{L}_{\mathrm{XE}}=-\sum_{t}\log p_{\theta}(y_{t}^{*}\mid y_{<t}^{*},x).
+\mathcal{L}_{\mathrm{XE}}=-\sum_{t}\log p_{\theta}(y_{t}^{*}\mid y_{1:t-1}^{*},x).
 $$
 
 Both RL methods then start from the **same fine-tuned XE checkpoint**. For a sampled caption $y^s$, they optimize its CIDEr-D reward $r$:
