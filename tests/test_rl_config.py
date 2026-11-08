@@ -26,17 +26,9 @@ def test_existing_configs_do_not_enable_early_stopping_implicitly():
     assert load_config("configs/default.toml").scst.patience is None
 
 
-@pytest.mark.parametrize("weight_decay", [-0.01, float("nan"), float("inf")])
-def test_rl_weight_decay_must_be_nonnegative_and_finite(weight_decay):
-    config = ExperimentConfig()
-    with pytest.raises(ValueError, match=r"scst\.weight_decay"):
-        replace(config, scst=replace(config.scst, weight_decay=weight_decay)).validate()
-
-
 @pytest.mark.parametrize("encoder_lr", [None, 0.02])
-@pytest.mark.parametrize("weight_decay", [0.0, 0.1])
 @pytest.mark.parametrize("baseline", ["greedy", "none"])
-def test_rl_adamw_applies_decoupled_decay_to_each_group(encoder_lr, weight_decay, baseline):
+def test_rl_uses_adam_with_optional_encoder_group(encoder_lr, baseline):
     import torch
     from torch import nn
 
@@ -50,19 +42,10 @@ def test_rl_adamw_applies_decoupled_decay_to_each_group(encoder_lr, weight_decay
     config = SCSTConfig(
         learning_rate=0.1,
         encoder_learning_rate=encoder_lr,
-        weight_decay=weight_decay,
         baseline=baseline,
     )
     optimizer = build_scst_optimizer(model, config)
-    assert type(optimizer) is torch.optim.AdamW
-    with torch.no_grad():
-        for p in model.parameters():
-            p.fill_(2.0)
-            if p.requires_grad:
-                p.grad = torch.zeros_like(p)
-    optimizer.step()
-    # Zero gradients isolate decoupled weight decay from Adam's adaptive update.
-    for group in optimizer.param_groups:
-        for p in group["params"]:
-            torch.testing.assert_close(p, torch.full_like(p, 2 * (1 - group["lr"] * weight_decay)))
-    torch.testing.assert_close(model.frozen, torch.tensor([2.0]))
+    assert type(optimizer) is torch.optim.Adam
+    assert len(optimizer.param_groups) == (1 if encoder_lr is None else 2)
+    assert all(group["weight_decay"] == 0 for group in optimizer.param_groups)
+    torch.testing.assert_close(model.frozen, torch.tensor([1.0]))

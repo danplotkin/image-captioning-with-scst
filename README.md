@@ -2,8 +2,6 @@
 
 A PyTorch image captioner that compares cross-entropy training, REINFORCE, and self-critical sequence training on Flickr30k.
 
-> **Work in progress — not the final version.** The current REINFORCE and SCST results use Adam and are provisional. We plan to rerun both methods with AdamW from the same fine-tuned XE checkpoint, with weight decay explicitly configured and documented. Existing Adam checkpoints and results will be retained as a baseline; AdamW results are not yet available.
-
 ## Overview
 
 This project turns an image into a sentence using a pretrained Vision Transformer and a custom Transformer decoder. The decoder, training loops, reward integration, and generation pipeline are implemented to explore how image features become words—and whether optimizing a caption-level reward improves on next-token prediction.
@@ -46,17 +44,10 @@ SCST means **self-critical sequence training**: the model supplies its own basel
 | --- | --- | --- | --- | --- | --- |
 | [XE](configs/flickr30k.toml) | Frozen | AdamW | `1e-4` / — | 40 | 15 / 3 |
 | [XE fine-tuning](configs/flickr30k-xe-finetune.toml) | Last 4 blocks + final LayerNorm | AdamW | `1e-5` / `1e-6` | 40 | 5 / 2 |
-| [REINFORCE](configs/flickr30k-reinforce.toml) | Last 4 blocks + final LayerNorm | AdamW | `1e-5` / `1e-6` | 16 | 30 / 4 |
-| [SCST](configs/flickr30k-scst.toml) | Last 4 blocks + final LayerNorm | AdamW | `1e-5` / `1e-6` | 16 | 30 / 4 |
+| [REINFORCE](configs/flickr30k-reinforce.toml) | Last 4 blocks + final LayerNorm | Adam | `1e-5` / `1e-6` | 16 | 30 / 4 |
+| [SCST](configs/flickr30k-scst.toml) | Last 4 blocks + final LayerNorm | Adam | `1e-5` / `1e-6` | 16 | 30 / 4 |
 
 XE uses weight decay 0.01 and cosine decay with 10% warmup; RL uses exponential LR decay of 0.95 per epoch. All stages clip gradient norm at 1.0. Checkpoints minimize validation XE loss or maximize greedy validation CIDEr-D. Saved REINFORCE/SCST runs stopped after 17/18 epochs and selected epochs 13/14.
-
-The table describes the current rerun configs: both RL methods now use AdamW with
-`scst.weight_decay = 0.01`, applied to decoder and trainable encoder parameters.
-Configs omitting this field default to `0.0` to avoid implicitly adding regularization.
-The results below remain from the earlier Adam runs with zero weight decay.
-Those checkpoints still support inference, but cannot be resumed into AdamW;
-start the new runs from the common XE checkpoint in separate output directories.
 
 ### Inference and KV caching
 
@@ -78,7 +69,7 @@ Beam candidates are ranked by $\log p_\theta(y\mid x)/((5+T)/6)^{0.7}$, reducing
 | [CPTR — Liu et al., 2021](https://arxiv.org/abs/2101.10804) | Motivates the image-patch Transformer encoder and Transformer caption decoder. This project is an adaptation. |
 | [Self-Critical Sequence Training — Rennie et al., 2017](https://arxiv.org/abs/1612.00563) | Uses the model's inference output as the baseline for sequence-reward optimization. |
 
-## Results (provisional)
+## Results
 
 **Full 1,000-image test split · greedy decoding · five references · CUDA FP16 · KV cache.** Scores below are raw `pycocoevalcap` values, not multiplied by 100. All three evaluations share the same corpus/metric protocol; weights were selected on validation.
 
@@ -142,11 +133,11 @@ uv run scst-captioner train-xe --config configs/flickr30k-xe-finetune.toml \
 # 3. Train each RL method independently from the same fine-tuned XE parent.
 uv run scst-captioner train-scst --config configs/flickr30k-reinforce.toml \
   --xe-checkpoint artifacts/flickr30k-xe-finetune-runpod/best.pt \
-  --output-dir artifacts/flickr30k-policy-gradient-adamw/reinforce
+  --output-dir artifacts/flickr30k-policy-gradient/reinforce
 
 uv run scst-captioner train-scst --config configs/flickr30k-scst.toml \
   --xe-checkpoint artifacts/flickr30k-xe-finetune-runpod/best.pt \
-  --output-dir artifacts/flickr30k-policy-gradient-adamw/scst
+  --output-dir artifacts/flickr30k-policy-gradient/scst
 ```
 
 The CLI command `train-scst` supports both RL methods; the config selects the baseline. Use new output paths for new experiments. `init_checkpoint` starts a new optimizer; `--resume` restores training state.

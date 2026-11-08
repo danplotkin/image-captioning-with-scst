@@ -194,7 +194,6 @@ def _normalized_checkpoint_config(stored_config: Any) -> Any:
         "model": {"encoder_trainable_blocks": None, "encoder_train_final_layer_norm": False},
         "xe": {"encoder_learning_rate": None},
         "scst": {
-            "weight_decay": 0.0,
             "encoder_learning_rate": None,
             "lr_schedule": "exponential",
             "resume_use_config_lrs": False,
@@ -282,15 +281,8 @@ def _validate_checkpoint_scientific_protocol(
     if not isinstance(stored, dict):
         raise ValueError("Checkpoint is missing its resolved configuration")
     stage = checkpoint.get("stage")
-    if stage == "scst":
-        # Weight decay changes training updates, not caption inference or scoring.
-        # Exact resume checks the full configuration separately.
-        stored_rl = {k: v for k, v in stored.get("scst", {}).items() if k != "weight_decay"}
-        requested_rl = {k: v for k, v in config.to_dict()["scst"].items() if k != "weight_decay"}
-        if stored_rl != requested_rl:
-            raise ValueError(
-                "SCST checkpoint reward/baseline/sampling protocol does not match config"
-            )
+    if stage == "scst" and stored.get("scst") != config.to_dict()["scst"]:
+        raise ValueError("SCST checkpoint reward/baseline/sampling protocol does not match config")
     if stage == "scst":
         provenance = checkpoint.get("provenance")
         if not isinstance(provenance, dict) or provenance.get(
@@ -373,12 +365,6 @@ def _resume_if_requested(
         raise ValueError("A raw legacy state dict can initialize training but cannot resume it")
     validation_config = config
     stored_rl = checkpoint.get("config", {}).get("scst", {})
-    if expected_stage == "scst" and "weight_decay" not in stored_rl:
-        raise ValueError(
-            "This RL checkpoint predates AdamW and cannot resume with the new optimizer. "
-            "Start a fresh RL run from the XE checkpoint in a new output directory. "
-            "The existing checkpoint remains usable for inference."
-        )
     stored_epochs = checkpoint.get("config", {}).get("scst", {}).get("epochs")
     if (
         expected_stage == "scst"
